@@ -6,6 +6,7 @@ import IsoTileInventory from './IsoTileInventory';
 import CameraHandler from './CameraHandler';
 import PreviewOverlay from './PreviewOverlay';
 import TileInfoPopup from './TileInfoPopup';
+import BoardControlsPanel from './BoardControlsPanel';
 import { useBoardController } from '../hooks/useBoardController';
 import { useDragTile } from '../hooks/useDragTile';
 import type { TileData } from '../core/models/Tile';
@@ -14,13 +15,22 @@ import { AVAILABLE_TILES } from '../core/constants';
 interface IsoBoardCanvasProps {
   boardWidth: number;
   boardHeight: number;
+  showControlsPanel?: boolean;
+  width?: string | number;
+  height?: string | number;
+  canvasProps?: React.HTMLAttributes<HTMLDivElement>;
 }
 
 export const IsoBoardCanvas: React.FC<IsoBoardCanvasProps> = ({
   boardWidth,
   boardHeight,
+  showControlsPanel = false,
+  width = '100%',
+  height = '100%',
+  canvasProps = {}
 }) => {
   const containerRef = useRef<HTMLDivElement>(null!);
+  const mainContainerRef = useRef<HTMLDivElement>(null!); // Container principal para eventos
   const phaserGameRef = useRef<Phaser.Game | null>(null);
 
   // Estado para o popup de informações
@@ -178,17 +188,23 @@ export const IsoBoardCanvas: React.FC<IsoBoardCanvasProps> = ({
     };
   }, [boardManager, boardWidth, boardHeight, cameraModel, dragController, handleBoardTileDragStart, handleTileInfo]);
 
+  const containerStyle = {
+    width,
+    height,
+    position: 'relative' as const,
+    backgroundColor: '#023047',
+    userSelect: 'none' as const,
+    WebkitUserSelect: 'none' as const,
+    ...canvasProps.style
+  };
+
   return (
     <div 
-      style={{ 
-        width: '100%', 
-        height: '100%', 
-        position: 'relative', 
-        backgroundColor: '#023047', 
-        userSelect: 'none', 
-        WebkitUserSelect: 'none' 
-      }}
+      ref={mainContainerRef}
+      {...canvasProps}
+      style={containerStyle}
       onContextMenu={handleContextMenu}
+      tabIndex={0} // Garantir que pode receber foco
     >
       <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }} />
       <IsoTileInventory tiles={AVAILABLE_TILES} onDragStart={handleInventoryDragStart} />
@@ -199,6 +215,12 @@ export const IsoBoardCanvas: React.FC<IsoBoardCanvasProps> = ({
         position={tileInfoPopup?.position || null}
         onClose={handleClosePopup}
       />
+      {showControlsPanel && (
+        <BoardControlsPanel
+          cameraModel={cameraModel}
+          containerRef={mainContainerRef}
+        />
+      )}
     </div>
   );
 };

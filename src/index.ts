@@ -9,6 +9,7 @@ export { PreviewOverlay } from './components/PreviewOverlay';
 export { CameraHandler } from './components/CameraHandler';
 export { TileInteractionLayer } from './components/TileInteractionLayer';
 export { TileInfoPopup } from './components/TileInfoPopup';
+export { BoardControlsPanel } from './components/BoardControlsPanel';
 
 export { BoardStateManager } from './core/engine/BoardStateManager';
 export { DragController, type DragState } from './core/engine/DragController';
@@ -29,3 +30,12 @@ export {
 
 export { useBoardController } from './hooks/useBoardController';
 export { useDragTile } from './hooks/useDragTile';
+export { 
+  useAdvancedBoardControls, 
+  type Point2D, 
+  type BookmarkData, 
+  type AdvancedBoardControlsOptions 
+} from './hooks/useAdvancedBoardControls';
+
+// Configurações centralizadas
+export * from './core/config';
