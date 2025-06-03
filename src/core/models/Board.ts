@@ -15,7 +15,6 @@ export function getTileAtPosition(
   state: BoardState,
   position: TilePosition
 ): TileData | undefined {
-  // Valida limites
   if (
     position.row < 0 ||
     position.col < 0 ||

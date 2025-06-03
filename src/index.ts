@@ -1,4 +1,8 @@
 export * from './components/IsoBoardCanvas';
 export * from './components/IsoTileInventory';
-export * from './components/IsoBoard.tsx';
-export * from './types/public';
+export * from './components/IsoBoard';
+
+export type { TileData, TilePosition, TileSize, TileMetadata } from './core/models/Tile';
+export type { BoardState } from './core/models/Board';
+export type { CameraState } from './core/models/Camera';
+export type { ScreenPosition } from './core/math/isoCoordinate';

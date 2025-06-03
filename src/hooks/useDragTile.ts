@@ -1,27 +1,48 @@
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
+import { DragController } from '../core/engine/DragController';
 import type { TileData, TilePosition } from '../core/models/Tile';
 
+/**
+ * Hook que encapsula a lógica de “arraste” de um tile,
+ * delegando todo o gerenciamento de preview ao DragController.
+ */
 export function useDragTile() {
-  const [dragging, setDragging] = useState<{
-    tile: TileData;
-    position: TilePosition;
-  } | null>(null);
+  // Instancia única de DragController
+  const controllerRef = useRef<DragController>(new DragController());
+  // Estado React que reflete o preview (para rerenderizar a UI)
+  const [preview, setPreview] = useState<{ tile: TileData; position: TilePosition } | null>(null);
 
-  const startDrag = (tile: TileData) => {
-    setDragging({ tile, position: tile.position });
-  };
+  /**
+   * Inicia o arraste de um dado tile.
+   */
+  const startDrag = useCallback((tile: TileData) => {
+    controllerRef.current.startDrag(tile);
+    const current = controllerRef.current.getPreview();
+    setPreview(current);
+  }, []);
 
-  const updatePosition = (position: TilePosition) => {
-    if (dragging) {
-      setDragging({ ...dragging, position });
-    }
-  };
+  /**
+   * Atualiza a posição de preview (screen → grid no componente que chama).
+   */
+  const updatePosition = useCallback((position: TilePosition) => {
+    controllerRef.current.updatePreviewPosition(position);
+    const current = controllerRef.current.getPreview();
+    setPreview(current);
+  }, []);
 
-  const endDrag = () => {
-    const result = dragging;
-    setDragging(null);
+  /**
+   * Finaliza o arraste, limpa o preview e retorna { tile, position } final.
+   */
+  const endDrag = useCallback(() => {
+    const result = controllerRef.current.endDrag();
+    setPreview(null);
     return result;
-  };
+  }, []);
 
-  return { dragging, startDrag, updatePosition, endDrag };
+  return {
+    dragging: preview,
+    startDrag,
+    updatePosition,
+    endDrag,
+  };
 }

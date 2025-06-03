@@ -1,21 +1,22 @@
 import { useState, useCallback } from 'react';
-import {
-  getTileAtPosition,
-  getNeighborTiles,
-  isTileOccupied
-} from '../core/models/Board';
 import type { TileData, TilePosition } from '../core/models/Tile';
 import type { BoardState } from '../core/models/Board';
+import {
+  getTileAt,
+  getOrthogonalNeighbors,
+  getSurroundingTiles,
+  canPlaceTile
+} from '../core/math/tileUtils';
 
 export interface UseBoardControllerResult {
-  boardState: BoardState;
   tiles: TileData[];
   boardSize: { rows: number; cols: number };
   addTile: (tile: TileData) => void;
   removeTile: (tileId: string) => void;
   moveTile: (tileId: string, to: TilePosition) => void;
   getTileAt: (position: TilePosition) => TileData | undefined;
-  getNeighbors: (position: TilePosition) => TileData[];
+  getOrthogonalNeighbors: (position: TilePosition) => TileData[];
+  getSurroundingTiles: (position: TilePosition) => TileData[];
   canPlaceTileAt: (position: TilePosition) => boolean;
 }
 
@@ -25,7 +26,8 @@ export function useBoardController(
 ): UseBoardControllerResult {
   const [tiles, setTiles] = useState<TileData[]>(initialTiles);
 
-  const boardState: BoardState = { tiles, size: boardSize };
+  // NOTA: não colocamos `boardState` aqui, pois ele é recriado a cada render.
+  // Quando precisamos dele, montamos inline: { tiles, size: boardSize }.
 
   const addTile = useCallback((tile: TileData) => {
     setTiles(prev => [...prev, tile]);
@@ -41,46 +43,48 @@ export function useBoardController(
     );
   }, []);
 
-  const getTileAt = useCallback(
+  const getTileAtPos = useCallback(
     (position: TilePosition) => {
-      return getTileAtPosition(boardState, position);
+      // Montamos o estado do board inline, sempre atualizado
+      const state: BoardState = { tiles, size: boardSize };
+      return getTileAt(state, position);
     },
-    [boardState]
+    [tiles, boardSize]
   );
 
-  const getNeighbors = useCallback(
+  const getOrthogonalNeighborsAt = useCallback(
     (position: TilePosition) => {
-      return getNeighborTiles(boardState, position);
+      const state: BoardState = { tiles, size: boardSize };
+      return getOrthogonalNeighbors(state, position);
     },
-    [boardState]
+    [tiles, boardSize]
+  );
+
+  const getSurroundingAt = useCallback(
+    (position: TilePosition) => {
+      const state: BoardState = { tiles, size: boardSize };
+      return getSurroundingTiles(state, position);
+    },
+    [tiles, boardSize]
   );
 
   const canPlaceTileAt = useCallback(
     (position: TilePosition) => {
-      // Verifica limites
-      if (
-        position.row < 0 ||
-        position.col < 0 ||
-        position.row >= boardSize.rows ||
-        position.col >= boardSize.cols
-      ) {
-        return false;
-      }
-      // Verifica ocupação
-      return !isTileOccupied(boardState, position);
+      const state: BoardState = { tiles, size: boardSize };
+      return canPlaceTile(state, position);
     },
-    [boardState, boardSize]
+    [tiles, boardSize]
   );
 
   return {
-    boardState,
     tiles,
     boardSize,
     addTile,
     removeTile,
     moveTile,
-    getTileAt,
-    getNeighbors,
+    getTileAt: getTileAtPos,
+    getOrthogonalNeighbors: getOrthogonalNeighborsAt,
+    getSurroundingTiles: getSurroundingAt,
     canPlaceTileAt,
   };
 }
