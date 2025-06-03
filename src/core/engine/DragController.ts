@@ -73,7 +73,7 @@ export class DragController {
       return false;
     }
 
-    // Usa a nova função de snap inteligente para melhor precisão
+    // Usa exatamente a mesma lógica que o ghost visual para garantir consistência
     const tileCoords = screenToTileWithSnap(
       screenPos.x - this.offsets.offsetX,
       screenPos.y - this.offsets.offsetY,
@@ -91,6 +91,9 @@ export class DragController {
 
     const { tileX: x, tileY: y } = tileCoords;
     const tileData = this.state.tile;
+    
+    console.log('Drop: ghost shows', { x, y }, 'placing at', { x, y });
+    
     let success = false;
     
     // Tenta colocar no tabuleiro
