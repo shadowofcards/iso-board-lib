@@ -53,10 +53,9 @@ export function freeCameraMovement(pos: Point): Point {
  * Ajusta o valor de zoom de acordo com delta (por exemplo, wheelDelta ou pinch).
  * Apenas retorna novo scale; caps mínimo e máximo podem ser aplicados externamente.
  */
-export function applyZoom(currentZoom: number, delta: number): number {
-  // Suaviza o efeito: se delta positivo, aumenta; se negativo, diminui
-  const factor = 0.001; // sensibilidade
-  const newZoom = currentZoom + delta * factor;
-  // Limita entre 0.5x e 3x por padrão (pode-se ajustar)
-  return Math.max(0.5, Math.min(newZoom, 3));
+export function applyZoom(current: number, delta: number): number {
+  /* sensibilidade ligeiramente menor para evitar saltos grandes */
+  const factor = 0.0007;
+  const next = current + delta * factor;
+  return Math.max(0.3, Math.min(next, 4));
 }

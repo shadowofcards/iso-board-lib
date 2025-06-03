@@ -82,7 +82,13 @@ export const IsoBoardCanvas: React.FC<IsoBoardCanvasProps> = ({
 
   const handleBoardTileDragStart = useCallback(
     (tile: TileData, boardX: number, boardY: number, e: { clientX: number; clientY: number }) => {
+      // Marca início da operação de drag para otimizações especiais
+      boardManager.startDragOperation();
+      
+      // Remove o tile do board
       boardManager.removeTile(boardX, boardY);
+      
+      // Inicia o drag
       const { worldX, worldY } = convertToWorldCoords(e.clientX, e.clientY);
       onDragStart(tile, { x: e.clientX, y: e.clientY });
       dragController.startDrag(tile, { x: worldX, y: worldY });
@@ -107,10 +113,15 @@ export const IsoBoardCanvas: React.FC<IsoBoardCanvasProps> = ({
       if (dragState.isDragging) {
         const { worldX, worldY } = convertToWorldCoords(e.clientX, e.clientY);
         onDragEnd();
+        
+        // Finaliza o drag
         dragController.endDrag({ x: worldX, y: worldY });
+        
+        // Marca fim da operação de drag sempre, independente do sucesso
+        boardManager.endDragOperation();
       }
     },
-    [dragController, dragState.isDragging, onDragEnd, convertToWorldCoords]
+    [dragController, dragState.isDragging, onDragEnd, convertToWorldCoords, boardManager]
   );
 
   useEffect(() => {

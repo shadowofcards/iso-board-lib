@@ -14,10 +14,7 @@ export const TILE_HEIGHT = 64;
  * @returns Offsets X e Y para centralizar o grid
  */
 export function calculateIsoOffsets(viewportWidth: number, viewportHeight: number) {
-  return {
-    offsetX: viewportWidth / 2,
-    offsetY: viewportHeight / 2 - 50, // Ajustado para melhor precisão de drop
-  };
+  return { offsetX: viewportWidth / 2, offsetY: viewportHeight / 2 };
 }
 
 /**
