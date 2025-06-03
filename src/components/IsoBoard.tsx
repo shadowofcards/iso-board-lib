@@ -13,25 +13,72 @@ import { useBoardController } from '../hooks/useBoardController';
 import { useDragTile } from '../hooks/useDragTile';
 
 export interface IsoBoardProps {
+  /**
+   * Initial set of tiles on the board.
+   * Each TileData has id, type, image, position, size, etc.
+   */
   initialTiles: TileData[];
+  /**
+   * Optional inventory of tiles that the user can add.
+   * When provided, tiles appear in the top-left and can be placed on the board.
+   */
   availableTiles?: TileData[];
+  /**
+   * Dimensions of the board in grid units (rows × cols).
+   */
   boardSize: { rows: number; cols: number };
+  /**
+   * Size of each tile in pixels (width × height).
+   */
   tileSize: { width: number; height: number };
+  /**
+   * Callback when an existing tile is clicked.
+   */
   onTileClick?: (tile: TileData) => void;
+  /**
+   * Callback when a tile has been successfully dropped/moved.
+   * @param from - Original grid position
+   * @param to - Target grid position
+   * @param tile - The tile being moved
+   * @param fullBoard - Current full list of tiles after move
+   */
   onTileDrop?: (
     from: TilePosition,
     to: TilePosition,
     tile: TileData,
     fullBoard: TileData[]
   ) => void;
+  /**
+   * Optional pre-drop validation. Called before the move is finalized.
+   * @param to - Proposed grid position
+   * @param tile - The tile being moved
+   * @param neighbors - All neighboring tiles (orthogonal + diagonal)
+   * @returns false or Promise<false> to cancel the drop
+   */
   onTilePreDrop?: (
     to: TilePosition,
     tile: TileData,
     neighbors: TileData[]
   ) => boolean | Promise<boolean>;
+  /**
+   * Callback whenever the camera state (offset or zoom) changes.
+   */
   onCameraChange?: (camera: CameraState) => void;
 }
 
+/**
+ * IsoBoard
+ *
+ * Renders an isometric tile board with:
+ *  - A canvas for drawing tiles (IsoBoardCanvas),
+ *  - A transparent HTML overlay for hit detection and drag events (TileInteractionLayer),
+ *  - A semi-transparent preview image during drag (PreviewOverlay),
+ *  - Optional inventory panel (IsoTileInventory),
+ *  - Camera controls for pan/zoom (CameraHandler).
+ *
+ * All pan/zoom transformations are applied on the canvas context; hit boxes and preview
+ * are positioned in absolute coordinates based on the same transform.
+ */
 export const IsoBoard: React.FC<IsoBoardProps> = ({
   initialTiles,
   availableTiles = [],
@@ -42,7 +89,7 @@ export const IsoBoard: React.FC<IsoBoardProps> = ({
   onTilePreDrop,
   onCameraChange,
 }) => {
-  // 1) Estado do board + hooks de controle
+  // 1) Board state and utility hooks
   const {
     tiles,
     addTile,
@@ -54,10 +101,10 @@ export const IsoBoard: React.FC<IsoBoardProps> = ({
     canPlaceTileAt,
   } = useBoardController(initialTiles, boardSize);
 
-  // 2) Estado da câmera
+  // 2) Camera state
   const [camera, setCamera] = useState<CameraState>(createDefaultCamera());
 
-  // 3) Hook de arraste (preview) usando DragController
+  // 3) Drag/preview state using DragController under the hood
   const {
     dragging,
     startDrag,
@@ -65,7 +112,7 @@ export const IsoBoard: React.FC<IsoBoardProps> = ({
     endDrag,
   } = useDragTile();
 
-  // 4) Notifica mudança de câmera ao callback externo
+  // Notify external listener when camera changes
   const handleCameraChange = useCallback(
     (newCam: CameraState) => {
       setCamera(newCam);
@@ -74,7 +121,7 @@ export const IsoBoard: React.FC<IsoBoardProps> = ({
     [onCameraChange]
   );
 
-  // 5) Panning e zoom
+  // Pan the camera by dx, dy (in world units)
   const handlePan = useCallback(
     (dx: number, dy: number) => {
       const newCam = applyPan(camera, dx, dy);
@@ -83,9 +130,10 @@ export const IsoBoard: React.FC<IsoBoardProps> = ({
     [camera, handleCameraChange]
   );
 
+  // Zoom the camera, keeping a specific canvas pixel as the zoom center
   const handleZoom = useCallback(
     (factor: number, centerX: number, centerY: number) => {
-      // Converte ponto da tela para grid antes do zoom
+      // Convert canvas pixel → grid position before zoom
       const before = screenToGrid(
         centerX / camera.zoom + camera.offsetX,
         centerY / camera.zoom + camera.offsetY,
@@ -94,9 +142,9 @@ export const IsoBoard: React.FC<IsoBoardProps> = ({
         0,
         0
       );
-      // Aplica zoom
+      // Apply zoom factor
       const newCam = applyZoom(camera, factor);
-      // Recalcula offset para manter “before” no mesmo ponto de tela
+      // Recompute offset so that 'before' remains at the same canvas pixel
       const afterScreen = gridToScreen(
         before,
         tileSize.width,
@@ -111,7 +159,7 @@ export const IsoBoard: React.FC<IsoBoardProps> = ({
     [camera, handleCameraChange, tileSize]
   );
 
-  // 6) Clique em tile existente
+  // 6) Tile click handler
   const handleTileClick = useCallback(
     (tile: TileData) => {
       if (onTileClick) onTileClick(tile);
@@ -119,7 +167,7 @@ export const IsoBoard: React.FC<IsoBoardProps> = ({
     [onTileClick]
   );
 
-  // 7) Inicia arraste de tile existente
+  // 7) Start dragging an existing tile
   const handleDragStart = useCallback(
     (tile: TileData) => {
       startDrag(tile);
@@ -127,7 +175,7 @@ export const IsoBoard: React.FC<IsoBoardProps> = ({
     [startDrag]
   );
 
-  // 8) Enquanto arrasta, atualiza preview (screen → grid)
+  // 8) Update preview position while dragging (screen → grid)
   const handleDrag = useCallback(
     (_tile: TileData, screenPos: { x: number; y: number }) => {
       const pos = screenToGrid(
@@ -143,14 +191,14 @@ export const IsoBoard: React.FC<IsoBoardProps> = ({
     [camera, tileSize, updateDragPosition]
   );
 
-  // 9) Ao terminar arraste, usa screenPos para calcular posição de drop
+  // 9) Finalize drop when drag ends
   const handleDragEnd = useCallback(
     (_tile: TileData, screenPos: { x: number; y: number }) => {
-      // Finaliza preview interno e obtém { tile, position }
+      // Retrieve final preview position (tile & grid position)
       const result = endDrag();
       if (!result) return;
 
-      // Converte ponto final de tela para posição de grid (drop)
+      // Convert canvas pixel to grid coordinates for drop
       const to = screenToGrid(
         screenPos.x / camera.zoom + camera.offsetX,
         screenPos.y / camera.zoom + camera.offsetY,
@@ -161,10 +209,10 @@ export const IsoBoard: React.FC<IsoBoardProps> = ({
       );
       const draggedTile = _tile;
 
-      // 9.a) Buscar vizinhos ortogonais (4 direções)
+      // 9.a) Gather orthogonal neighbors (4 directions)
       const orthoNeighbors = getOrthogonalNeighbors(to);
 
-      // 9.b) Buscar vizinhos diagonais (sem incluir ortogonais)
+      // 9.b) Gather diagonal neighbors (any surrounding not in orthogonal list)
       const diagonalNeighbors = getSurroundingTiles(to).filter(
         (n) =>
           !orthoNeighbors.some(
@@ -174,19 +222,17 @@ export const IsoBoard: React.FC<IsoBoardProps> = ({
           )
       );
 
-      // Concatena ortogonais + diagonais para lista completa
+      // Combine all neighbors
       const allNeighbors = [...orthoNeighbors, ...diagonalNeighbors];
 
-      // 9.c) Validação prévia (callback)
+      // 9.c) Pre-drop validation if provided
       if (onTilePreDrop) {
         const valid = onTilePreDrop(to, draggedTile, allNeighbors);
         if (typeof valid === 'boolean') {
           if (!valid) return;
-          // Se valid for true, prossegue
         } else {
           valid.then((ok) => {
             if (!ok) return;
-            // Recheca colisão/limites antes de mover
             if (!canPlaceTileAt(to)) return;
             const from = draggedTile.position;
             moveTile(draggedTile.id, to);
@@ -196,7 +242,7 @@ export const IsoBoard: React.FC<IsoBoardProps> = ({
         }
       }
 
-      // 9.d) Fluxo síncrono: verifica limites e ocupação
+      // 9.d) Synchronous flow: check bounds & occupancy
       if (canPlaceTileAt(to)) {
         const from = draggedTile.position;
         moveTile(draggedTile.id, to);
@@ -217,7 +263,7 @@ export const IsoBoard: React.FC<IsoBoardProps> = ({
     ]
   );
 
-  // 10) Adiciona tile do inventário no centro do board
+  // 10) Add a tile from the inventory to the center of the board
   const handleSelectFromInventory = useCallback(
     (tile: TileData) => {
       const centerPos: TilePosition = {
@@ -234,7 +280,7 @@ export const IsoBoard: React.FC<IsoBoardProps> = ({
     [addTile, boardSize, tileSize]
   );
 
-  // 11) Remove tile existente com clique direito (se não estiver locked)
+  // 11) Remove a tile on right-click, if not locked
   const handleTileRemove = useCallback(
     (tile: TileData) => {
       if (!tile.locked) {
@@ -244,22 +290,22 @@ export const IsoBoard: React.FC<IsoBoardProps> = ({
     [removeTile]
   );
 
-  // 12) Ref para o <canvas> e cache de imagens
+  // 12) Canvas ref and image cache for performant rendering
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Cache de imagens: URL → HTMLImageElement
+  // Map from image URL → loaded HTMLImageElement
   const imageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
-  // Estado para forçar re-render quando uma nova imagem carrega
+  // State to force a re-render when a new image finishes loading
   const [, setRenderTrigger] = useState<number>(0);
 
-  // Pré-carrega as imagens sempre que `tiles` mudar
+  // Preload tile images whenever `tiles` changes
   useEffect(() => {
     tiles.forEach((tile) => {
       if (!imageCacheRef.current.has(tile.image)) {
         const img = new Image();
         img.src = tile.image;
         img.onload = () => {
-          // Quando carregar, forçar re-render para desenhar o canvas com imagem pronta
+          // Once loaded, trigger a re-render so the canvas can draw it
           setRenderTrigger((r) => r + 1);
         };
         imageCacheRef.current.set(tile.image, img);
@@ -276,7 +322,7 @@ export const IsoBoard: React.FC<IsoBoardProps> = ({
         overflow: 'hidden',
       }}
     >
-      {/* Inventário de tiles (se fornecido) */}
+      {/* Inventory panel in top-left (if provided) */}
       {availableTiles.length > 0 && (
         <div style={{ position: 'absolute', top: 8, left: 8, zIndex: 2 }}>
           <IsoTileInventory
@@ -286,7 +332,7 @@ export const IsoBoard: React.FC<IsoBoardProps> = ({
         </div>
       )}
 
-      {/* Canvas isométrico que desenha todos os tiles */}
+      {/* Isometric canvas renderer */}
       <IsoBoardCanvas
         ref={canvasRef}
         tiles={tiles}
@@ -294,7 +340,7 @@ export const IsoBoard: React.FC<IsoBoardProps> = ({
         cameraOffset={{ x: camera.offsetX, y: camera.offsetY }}
         cameraZoom={camera.zoom}
         renderTile={(ctx, tile, x, y, _zoom) => {
-          // Usa o cache de imagens em vez de criar new Image() a cada frame
+          // Use cached HTMLImageElement instead of new Image() each frame
           let img = imageCacheRef.current.get(tile.image);
           if (!img) {
             img = new Image();
@@ -303,12 +349,13 @@ export const IsoBoard: React.FC<IsoBoardProps> = ({
             imageCacheRef.current.set(tile.image, img);
           }
           if (img.complete) {
+            // Since zoom/pan are handled by canvas transform, draw at (x, y)
             ctx.drawImage(img, x, y, tileSize.width, tileSize.height);
           }
         }}
       />
 
-      {/* Camada de interação (hit boxes isométricas) */}
+      {/* Transparent divs for hit detection & drag events */}
       <TileInteractionLayer
         tiles={tiles}
         tileSize={tileSize}
@@ -320,7 +367,7 @@ export const IsoBoard: React.FC<IsoBoardProps> = ({
         onDragEnd={handleDragEnd}
       />
 
-      {/* Preview semi-transparente do tile em arraste */}
+      {/* Semi-transparent preview of the tile being dragged */}
       <PreviewOverlay
         preview={
           dragging ? { tile: dragging.tile, position: dragging.position } : null
@@ -330,7 +377,7 @@ export const IsoBoard: React.FC<IsoBoardProps> = ({
         cameraZoom={camera.zoom}
       />
 
-      {/* Camada transparente que captura clique direito para remover tile */}
+      {/* Invisible overlay to capture right-clicks for tile removal */}
       <div
         style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
         onContextMenu={(e) => {
@@ -352,7 +399,7 @@ export const IsoBoard: React.FC<IsoBoardProps> = ({
         }}
       />
 
-      {/* Controlador de câmera (teclado, mouse, touch) */}
+      {/* Camera controls for mouse, touch, and keyboard */}
       <CameraHandler
         canvasRef={canvasRef}
         camera={camera}
