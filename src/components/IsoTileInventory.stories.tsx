@@ -1,4 +1,3 @@
-import React from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
 import { IsoTileInventory } from './IsoTileInventory';
 import type { TileData } from '../core/models/Tile';

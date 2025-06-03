@@ -1,7 +1,6 @@
-import React from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
 import { PreviewOverlay } from './PreviewOverlay';
-import type { TileData, TilePosition } from '../core/models/Tile';
+import type { TileData } from '../core/models/Tile';
 
 const sampleTile: TileData = {
   id: 'p1',

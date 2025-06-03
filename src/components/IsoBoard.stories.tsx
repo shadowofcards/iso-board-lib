@@ -1,7 +1,6 @@
-import React from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
 import { IsoBoard } from './IsoBoard';
-import type { TileData, TilePosition } from '../core/models/Tile';
+import type { TileData } from '../core/models/Tile';
 import type { CameraState } from '../core/models/Camera';
 
 const tileA: TileData = {
