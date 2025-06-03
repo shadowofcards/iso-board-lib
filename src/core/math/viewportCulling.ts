@@ -1,25 +1,20 @@
 import { toTilePos } from './isoCoordinate';
+import { CULLING_TILE_THRESHOLD } from '../config';
 
 export interface ViewportBounds {
-  minX: number;
-  maxX: number;
-  minY: number;
-  maxY: number;
+  minX: number; maxX: number;
+  minY: number; maxY: number;
 }
 
 export interface VisibleTileRange {
-  startX: number;
-  endX: number;
-  startY: number;
-  endY: number;
+  startX: number; endX: number;
+  startY: number; endY: number;
   totalTiles: number;
 }
 
-/* ------------------------------------------------------------------ */
-/*  AJUSTES DE BUFFER E SAMPLING PARA NAVEGAÇÃO MAIS SUAVE            */
-/* ------------------------------------------------------------------ */
+/* ---------- buffer adaptativo ------------------------------------ */
 
-function calculateAdaptiveBuffer(zoom: number): number {
+function adaptiveBuffer(zoom: number): number {
   if (zoom < 0.15) return 12;
   if (zoom < 0.35) return 8;
   if (zoom < 0.65) return 6;
@@ -27,22 +22,20 @@ function calculateAdaptiveBuffer(zoom: number): number {
   return 3;
 }
 
-export function calculateVisibleTileRange(
-  cameraX: number,
-  cameraY: number,
-  zoom: number,
-  viewportWidth: number,
-  viewportHeight: number,
-  tileSize: number,
-  tileHeight: number,
-  boardWidth: number,
-  boardHeight: number,
-  bufferTiles?: number
-): VisibleTileRange {
-  const buffer = bufferTiles ?? calculateAdaptiveBuffer(zoom);
+/* ---------- range visível ---------------------------------------- */
 
-  const effW = (viewportWidth / zoom) * 1.25; // 25 % extra
-  const effH = (viewportHeight / zoom) * 1.25;
+export function calculateVisibleTileRange(
+  cameraX: number, cameraY: number,
+  zoom: number,
+  viewportW: number, viewportH: number,
+  tileW: number, tileH: number,
+  boardW: number, boardH: number,
+  bufferTiles?: number,
+): VisibleTileRange {
+  const buffer = bufferTiles ?? adaptiveBuffer(zoom);
+
+  const effW = (viewportW / zoom) * 1.25;
+  const effH = (viewportH / zoom) * 1.25;
 
   const bounds = {
     minX: cameraX - effW / 2,
@@ -51,6 +44,10 @@ export function calculateVisibleTileRange(
     maxY: cameraY + effH / 2,
   };
 
+  let minTX = boardW, maxTX = -1,
+      minTY = boardH, maxTY = -1;
+
+  /* quatro cantos do viewport */
   const corners = [
     { x: bounds.minX, y: bounds.minY },
     { x: bounds.maxX, y: bounds.minY },
@@ -58,66 +55,49 @@ export function calculateVisibleTileRange(
     { x: bounds.maxX, y: bounds.maxY },
   ];
 
-  let minTileX = boardWidth;
-  let maxTileX = -1;
-  let minTileY = boardHeight;
-  let maxTileY = -1;
-
   for (const c of corners) {
-    const tc = toTilePos(c.x, c.y, tileSize, tileHeight);
-    if (tc) {
-      minTileX = Math.min(minTileX, tc.tileX);
-      maxTileX = Math.max(maxTileX, tc.tileX);
-      minTileY = Math.min(minTileY, tc.tileY);
-      maxTileY = Math.max(maxTileY, tc.tileY);
-    }
+    const tc = toTilePos(c.x, c.y, tileW, tileH);
+    minTX = Math.min(minTX, tc.tileX);
+    maxTX = Math.max(maxTX, tc.tileX);
+    minTY = Math.min(minTY, tc.tileY);
+    maxTY = Math.max(maxTY, tc.tileY);
   }
 
-  const startX = Math.max(0, Math.floor(minTileX) - buffer);
-  const endX = Math.min(boardWidth - 1, Math.ceil(maxTileX) + buffer);
-  const startY = Math.max(0, Math.floor(minTileY) - buffer);
-  const endY = Math.min(boardHeight - 1, Math.ceil(maxTileY) + buffer);
+  const startX = Math.max(0, Math.floor(minTX) - buffer);
+  const endX   = Math.min(boardW - 1, Math.ceil(maxTX) + buffer);
+  const startY = Math.max(0, Math.floor(minTY) - buffer);
+  const endY   = Math.min(boardH - 1, Math.ceil(maxTY) + buffer);
 
   return {
-    startX,
-    endX,
-    startY,
-    endY,
+    startX, endX, startY, endY,
     totalTiles: (endX - startX + 1) * (endY - startY + 1),
   };
 }
 
-/* ------------------------- VISIBILIDADE & LOD ------------------------- */
+/* ---------- LOD e helpers --------------------------------------- */
 
 export function isTileVisible(
-  tileX: number,
-  tileY: number,
-  v: VisibleTileRange
+  x: number, y: number, v: VisibleTileRange,
 ): boolean {
-  return tileX >= v.startX && tileX <= v.endX && tileY >= v.startY && tileY <= v.endY;
+  return x >= v.startX && x <= v.endX && y >= v.startY && y <= v.endY;
 }
 
-export function calculateLevelOfDetail(zoom: number): number {
-  if (zoom < 0.25) return 0;
-  if (zoom < 0.50) return 1;
-  if (zoom < 0.85) return 2;
-  if (zoom < 1.50) return 3;
+export function calculateLevelOfDetail(z: number): number {
+  if (z < 0.25) return 0;
+  if (z < 0.50) return 1;
+  if (z < 0.85) return 2;
+  if (z < 1.50) return 3;
   return 4;
 }
 
-export function shouldRenderGrid(zoom: number, lod: number): boolean {
-  return zoom >= 0.35 && lod >= 1;
-}
+export const shouldRenderGrid        = (z: number, lod: number) => z >= 0.35 && lod >= 1;
+export const shouldRenderDecorations = (z: number, lod: number) => z >= 0.9  && lod >= 2;
 
-export function shouldRenderDecorations(zoom: number, lod: number): boolean {
-  return zoom >= 0.9 && lod >= 2;
-}
-
-export function getGridSamplingRate(zoom: number): number {
-  if (zoom < 0.12) return 16;
-  if (zoom < 0.30) return 8;
-  if (zoom < 0.55) return 4;
-  if (zoom < 1.1) return 2;
+export function getGridSamplingRate(z: number): number {
+  if (z < 0.12) return 16;
+  if (z < 0.30) return 8;
+  if (z < 0.55) return 4;
+  if (z < 1.10) return 2;
   return 1;
 }
 
@@ -125,26 +105,27 @@ export function hasSignificantViewportChange(
   cur: VisibleTileRange,
   last: VisibleTileRange | null,
   curZoom: number,
-  lastZoom: number
+  lastZoom: number,
 ): boolean {
   if (!last) return true;
 
   const zoomTol = curZoom < 0.5 ? 0.002 : 0.001;
-  const posTol = curZoom < 0.5 ? 3 : 2;
+  const posTol  = curZoom < 0.5 ? 3     : 2;
 
   const zoomChanged = Math.abs(curZoom - lastZoom) > zoomTol;
-  const posChanged =
+  const posChanged  =
     Math.abs(cur.startX - last.startX) > posTol ||
-    Math.abs(cur.endX - last.endX) > posTol ||
+    Math.abs(cur.endX   - last.endX)   > posTol ||
     Math.abs(cur.startY - last.startY) > posTol ||
-    Math.abs(cur.endY - last.endY) > posTol;
+    Math.abs(cur.endY   - last.endY)   > posTol;
 
   return zoomChanged || posChanged;
 }
 
+/* ---------- ativa/desativa culling ------------------------------ */
+
 export function shouldUseViewportCulling(
-  boardWidth: number,
-  boardHeight: number
+  boardW: number, boardH: number,
 ): boolean {
-  return boardWidth * boardHeight > 100;
+  return boardW * boardH > CULLING_TILE_THRESHOLD;
 }

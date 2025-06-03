@@ -1,235 +1,96 @@
-/**
- * Sistema de Spatial Indexing para acelerar buscas de tiles em boards gigantescos.
- * Utiliza uma grade de chunks para organizar tiles em regiões menores.
- */
-
 import type { TileData } from '../models/Tile';
+import { CHUNK_SIZE } from '../config';
 
-export interface TileEntry {
-  x: number;
-  y: number;
-  tile: TileData;
-}
-
-export interface ChunkCoords {
-  chunkX: number;
-  chunkY: number;
-}
-
-export interface SpatialQuery {
-  minX: number;
-  maxX: number;
-  minY: number;
-  maxY: number;
-}
+export interface TileEntry { x: number; y: number; tile: TileData }
+export interface SpatialQuery { minX: number; maxX: number; minY: number; maxY: number }
 
 /**
- * Índice espacial baseado em chunks para busca eficiente de tiles.
- * Divide o mundo em pedaços menores (chunks) para acelerar consultas.
+ * Índice espacial em grid de chunks.
+ * Troca Set-por-Map para lookup O(1) por “x,y”.
  */
 export class SpatialIndex {
   private chunkSize: number;
-  private chunks: Map<string, Set<TileEntry>>;
-  private boardWidth: number;
-  private boardHeight: number;
+  private chunks: Map<string, Map<string, TileEntry>>;
+  private boardW: number;
+  private boardH: number;
 
-  constructor(boardWidth: number, boardHeight: number, chunkSize: number = 64) {
-    this.boardWidth = boardWidth;
-    this.boardHeight = boardHeight;
+  constructor(boardW: number, boardH: number, chunkSize: number = CHUNK_SIZE) {
+    this.boardW = boardW;
+    this.boardH = boardH;
     this.chunkSize = chunkSize;
     this.chunks = new Map();
   }
 
-  /**
-   * Converte coordenadas de tile para coordenadas de chunk.
-   */
-  private getChunkCoords(tileX: number, tileY: number): ChunkCoords {
-    return {
-      chunkX: Math.floor(tileX / this.chunkSize),
-      chunkY: Math.floor(tileY / this.chunkSize),
-    };
+  /* helpers */
+  private key(x: number, y: number)            { return `${x},${y}`; }
+  private chunkKey(cx: number, cy: number)     { return `${cx},${cy}`; }
+  private chunkCoords(x: number, y: number)    { return { cx: Math.floor(x / this.chunkSize), cy: Math.floor(y / this.chunkSize) }; }
+  private getOrCreateChunk(cx: number, cy: number) {
+    const key = this.chunkKey(cx, cy);
+    let c = this.chunks.get(key);
+    if (!c) { c = new Map(); this.chunks.set(key, c); }
+    return c;
   }
 
-  /**
-   * Gera a chave única para um chunk.
-   */
-  private getChunkKey(chunkX: number, chunkY: number): string {
-    return `${chunkX},${chunkY}`;
-  }
-
-  /**
-   * Obtém ou cria um chunk na coordenada especificada.
-   */
-  private getOrCreateChunk(chunkX: number, chunkY: number): Set<TileEntry> {
-    const key = this.getChunkKey(chunkX, chunkY);
-    let chunk = this.chunks.get(key);
-    if (!chunk) {
-      chunk = new Set();
-      this.chunks.set(key, chunk);
-    }
-    return chunk;
-  }
-
-  /**
-   * Adiciona um tile ao índice.
-   */
   addTile(x: number, y: number, tile: TileData): void {
-    if (x < 0 || x >= this.boardWidth || y < 0 || y >= this.boardHeight) {
-      return; // Fora dos limites
-    }
-
-    const { chunkX, chunkY } = this.getChunkCoords(x, y);
-    const chunk = this.getOrCreateChunk(chunkX, chunkY);
-    const entry: TileEntry = { x, y, tile };
-    chunk.add(entry);
+    if (x < 0 || x >= this.boardW || y < 0 || y >= this.boardH) return;
+    const { cx, cy } = this.chunkCoords(x, y);
+    this.getOrCreateChunk(cx, cy).set(this.key(x, y), { x, y, tile });
   }
 
-  /**
-   * Remove um tile do índice.
-   */
   removeTile(x: number, y: number): boolean {
-    const { chunkX, chunkY } = this.getChunkCoords(x, y);
-    const key = this.getChunkKey(chunkX, chunkY);
-    const chunk = this.chunks.get(key);
-    
+    const { cx, cy } = this.chunkCoords(x, y);
+    const chunk = this.chunks.get(this.chunkKey(cx, cy));
     if (!chunk) return false;
-
-    // Encontra e remove o tile
-    for (const entry of chunk) {
-      if (entry.x === x && entry.y === y) {
-        chunk.delete(entry);
-        
-        // Remove o chunk se estiver vazio
-        if (chunk.size === 0) {
-          this.chunks.delete(key);
-        }
-        
-        return true;
-      }
-    }
-    
-    return false;
+    const ok = chunk.delete(this.key(x, y));
+    if (chunk.size === 0) this.chunks.delete(this.chunkKey(cx, cy));
+    return ok;
   }
 
-  /**
-   * Encontra um tile em uma posição específica.
-   */
   getTileAt(x: number, y: number): TileData | null {
-    const { chunkX, chunkY } = this.getChunkCoords(x, y);
-    const key = this.getChunkKey(chunkX, chunkY);
-    const chunk = this.chunks.get(key);
-    
-    if (!chunk) return null;
-
-    for (const entry of chunk) {
-      if (entry.x === x && entry.y === y) {
-        return entry.tile;
-      }
-    }
-    
-    return null;
+    const { cx, cy } = this.chunkCoords(x, y);
+    const chunk = this.chunks.get(this.chunkKey(cx, cy));
+    return chunk?.get(this.key(x, y))?.tile ?? null;
   }
 
-  /**
-   * Busca tiles dentro de uma região retangular.
-   * Muito mais eficiente que buscar tile por tile.
-   */
-  queryRegion(query: SpatialQuery): TileEntry[] {
-    const results: TileEntry[] = [];
-    
-    // Calcula quais chunks intersectam com a região
-    const minChunkX = Math.floor(query.minX / this.chunkSize);
-    const maxChunkX = Math.floor(query.maxX / this.chunkSize);
-    const minChunkY = Math.floor(query.minY / this.chunkSize);
-    const maxChunkY = Math.floor(query.maxY / this.chunkSize);
+  /* queryRegion / queryRadius inalterados – usam Map agora */
+  queryRegion(q: SpatialQuery): TileEntry[] {
+    const res: TileEntry[] = [];
+    const minCX = Math.floor(q.minX / this.chunkSize);
+    const maxCX = Math.floor(q.maxX / this.chunkSize);
+    const minCY = Math.floor(q.minY / this.chunkSize);
+    const maxCY = Math.floor(q.maxY / this.chunkSize);
 
-    // Itera apenas pelos chunks relevantes
-    for (let chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
-      for (let chunkY = minChunkY; chunkY <= maxChunkY; chunkY++) {
-        const key = this.getChunkKey(chunkX, chunkY);
-        const chunk = this.chunks.get(key);
-        
+    for (let cx = minCX; cx <= maxCX; cx++) {
+      for (let cy = minCY; cy <= maxCY; cy++) {
+        const chunk = this.chunks.get(this.chunkKey(cx, cy));
         if (!chunk) continue;
-
-        // Filtra tiles dentro da região específica
-        for (const entry of chunk) {
-          if (
-            entry.x >= query.minX &&
-            entry.x <= query.maxX &&
-            entry.y >= query.minY &&
-            entry.y <= query.maxY
-          ) {
-            results.push(entry);
-          }
-        }
+        chunk.forEach(entry => {
+          if (entry.x >= q.minX && entry.x <= q.maxX &&
+              entry.y >= q.minY && entry.y <= q.maxY) res.push(entry);
+        });
       }
     }
-
-    return results;
+    return res;
   }
 
-  /**
-   * Busca tiles próximos a um ponto específico dentro de um raio.
-   */
-  queryRadius(centerX: number, centerY: number, radius: number): TileEntry[] {
-    const query: SpatialQuery = {
-      minX: centerX - radius,
-      maxX: centerX + radius,
-      minY: centerY - radius,
-      maxY: centerY + radius,
-    };
-
-    const candidates = this.queryRegion(query);
-    
-    // Filtra por distância real (círculo, não quadrado)
-    return candidates.filter((entry) => {
-      const dx = entry.x - centerX;
-      const dy = entry.y - centerY;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      return distance <= radius;
-    });
+  queryRadius(cx: number, cy: number, r: number): TileEntry[] {
+    return this.queryRegion({
+      minX: cx - r, maxX: cx + r,
+      minY: cy - r, maxY: cy + r,
+    }).filter(e => (Math.hypot(e.x - cx, e.y - cy) <= r));
   }
 
-  /**
-   * Retorna todos os tiles (cuidado com boards grandes!).
-   * Use apenas para debug ou boards pequenos.
-   */
-  getAllTiles(): TileEntry[] {
-    const results: TileEntry[] = [];
-    for (const chunk of this.chunks.values()) {
-      results.push(...Array.from(chunk));
-    }
-    return results;
-  }
+  clear() { this.chunks.clear(); }
 
-  /**
-   * Limpa todo o índice.
-   */
-  clear(): void {
-    this.chunks.clear();
-  }
-
-  /**
-   * Retorna estatísticas de performance do índice.
-   */
-  getStats(): {
-    totalChunks: number;
-    totalTiles: number;
-    chunkSize: number;
-    averageTilesPerChunk: number;
-  } {
-    const totalChunks = this.chunks.size;
-    let totalTiles = 0;
-    
-    for (const chunk of this.chunks.values()) {
-      totalTiles += chunk.size;
-    }
-
+  getStats() {
+    let tiles = 0;
+    this.chunks.forEach(c => tiles += c.size);
     return {
-      totalChunks,
-      totalTiles,
-      chunkSize: this.chunkSize,
-      averageTilesPerChunk: totalChunks > 0 ? totalTiles / totalChunks : 0,
+      totalChunks: this.chunks.size,
+      totalTiles : tiles,
+      chunkSize  : this.chunkSize,
+      averageTilesPerChunk: this.chunks.size ? tiles / this.chunks.size : 0,
     };
   }
-} 
+}

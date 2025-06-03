@@ -5,17 +5,20 @@ import {
 } from '../../core/engine/BoardStateManager';
 import { DragController } from '../../core/engine/DragController';
 import { Camera as CameraModel } from '../../core/models/Camera';
+
 import {
   toScreenPos,
   screenToTileWithSnap,
   isPointInIsometricTile,
   toTilePos,
 } from '../../core/math/isoCoordinate';
+
 import {
   TILE_SIZE,
   TILE_HEIGHT,
   calculateDynamicIsoOffsets,
 } from '../../core/constants';
+
 import {
   calculateVisibleTileRange,
   calculateLevelOfDetail,
@@ -26,8 +29,14 @@ import {
   shouldUseViewportCulling,
   type VisibleTileRange,
 } from '../../core/math/viewportCulling';
+
 import type { SpatialQuery } from '../../core/math/spatialIndex';
 import type { TileData } from '../../core/models/Tile';
+
+import {
+  RERENDER_THROTTLE_MS,
+  MAX_QUADS_PER_BATCH,
+} from '../../core/config';
 
 interface IsoSceneConfig {
   boardConfig: { width: number; height: number };
@@ -44,11 +53,10 @@ interface IsoSceneConfig {
   onReadyCallback: () => void;
 }
 
-/* ------------------------------------------------------------------ */
-const RERENDER_THROTTLE_MS = 35;
-/* ------------------------------------------------------------------ */
-
 export default class IsoScene extends Phaser.Scene {
+  /* ------------------------------------------------------------------ */
+  /*  CAMPOS                                                             */
+  /* ------------------------------------------------------------------ */
   private boardManager!: BoardStateManager;
   private dragController!: DragController;
   private cameraModel!: CameraModel;
@@ -58,7 +66,6 @@ export default class IsoScene extends Phaser.Scene {
   private gridGraphics!: Phaser.GameObjects.Graphics;
   private ghostGraphics!: Phaser.GameObjects.Graphics;
 
-  private changeListener!: BoardChangeListener;
   private onReadyCallback!: () => void;
   private onTileDragStart?: (
     tile: TileData,
@@ -68,59 +75,75 @@ export default class IsoScene extends Phaser.Scene {
   ) => void;
   private onTileInfo?: (tile: TileData, position: { x: number; y: number }) => void;
 
+  private changeListener!: BoardChangeListener;
+
   private lastVisibleRange: VisibleTileRange | null = null;
   private lastCameraPosition: { x: number; y: number; zoom: number } | null =
     null;
 
+  private lastRenderAt = 0;
+  private lastOffsets  = { offsetX: 0, offsetY: 0 };
+  private forceRedraw  = false;
+
   private isLargeBoard: boolean;
   private debugText?: Phaser.GameObjects.Text;
 
-  private lastRenderAt = 0;
-  private lastOffsets = { offsetX: 0, offsetY: 0 };
-
-  constructor(config: IsoSceneConfig) {
+  /* ------------------------------------------------------------------ */
+  /*  CONSTRUTOR                                                         */
+  /* ------------------------------------------------------------------ */
+  constructor(cfg: IsoSceneConfig) {
     super({ key: 'IsoScene' });
 
-    this.boardManager = config.boardManager;
-    this.dragController = config.dragController;
-    this.cameraModel = config.cameraModel;
-    this.boardConfig = config.boardConfig;
-    this.onReadyCallback = config.onReadyCallback;
-    this.onTileDragStart = config.onTileDragStart;
-    this.onTileInfo = config.onTileInfo;
+    this.boardManager   = cfg.boardManager;
+    this.dragController = cfg.dragController;
+    this.cameraModel    = cfg.cameraModel;
+    this.boardConfig    = cfg.boardConfig;
+    this.onReadyCallback = cfg.onReadyCallback;
+    this.onTileDragStart = cfg.onTileDragStart;
+    this.onTileInfo      = cfg.onTileInfo;
 
     this.isLargeBoard =
-      config.boardConfig.width * config.boardConfig.height > 10_000;
+      cfg.boardConfig.width * cfg.boardConfig.height > 10_000;
   }
 
-  /* =============================== LIFECYCLE =============================== */
+  /* ================================================================== */
+  /*  CICLO DE VIDA                                                     */
+  /* ================================================================== */
 
-  preload(): void {}
+  preload(): void { /* nada */ }
 
   create(): void {
+    /* texto de status */
     this.add.text(10, 10, 'Tabuleiro Isométrico Carregado!', {
       fontSize: '16px',
-      color: '#ffffff',
+      color   : '#ffffff',
     });
 
     this.debugText = this.add.text(10, 30, '', {
-      fontSize: '12px',
-      color: '#00ff00',
-      backgroundColor: 'rgba(0,0,0,0.7)',
-      padding: { x: 4, y: 2 }
+      fontSize       : '12px',
+      color          : '#00ff00',
+      backgroundColor: 'rgba(0,0,0,0.6)',
+      padding        : { x: 4, y: 2 },
     });
 
-    this.gridGraphics = this.add.graphics();
-    this.graphics = this.add.graphics();
+    /* layers */
+    this.gridGraphics  = this.add.graphics();
+    this.graphics      = this.add.graphics();
     this.ghostGraphics = this.add.graphics().setDepth(100);
 
+    /* offsets iniciais */
     this.syncDragControllerOffsets(true);
+
     if (!this.isLargeBoard) this.addExampleTiles();
 
-    this.changeListener = (tiles) => this.redrawBoardOptimized(tiles);
+    /* listener de mudança no board */
+    this.changeListener = () => { this.forceRedraw = true; };
     this.boardManager.onChange(this.changeListener);
 
+    /* render inicial */
     this.forceInitialRender();
+
+    /* input */
     this.setupInputHandlers();
 
     this.onReadyCallback();
@@ -128,10 +151,12 @@ export default class IsoScene extends Phaser.Scene {
 
   shutdown(): void {
     this.boardManager.offChange(this.changeListener);
+    this.debugText?.destroy();
   }
 
-  /* =========================== CORE UPDATE LOOP =========================== */
-
+  /* ------------------------------------------------------------------ */
+  /*  LOOP DE ATUALIZAÇÃO                                                */
+  /* ------------------------------------------------------------------ */
   update(): void {
     const cam = this.cameras.main;
     const pos = this.cameraModel.getPosition();
@@ -143,12 +168,12 @@ export default class IsoScene extends Phaser.Scene {
     this.redrawGhost();
   }
 
-  /* =============================== HELPERS ================================ */
+  /* ================================================================== */
+  /*  OFFSETs / CENTRO DE CÂMERA                                        */
+  /* ================================================================== */
 
   private syncDragControllerOffsets(force = false): void {
     const cam = this.cameras.main;
-
-    // agora o offset é fixo (só depende do zoom)
     const { offsetX, offsetY } = calculateDynamicIsoOffsets(
       cam.width,
       cam.height,
@@ -157,10 +182,11 @@ export default class IsoScene extends Phaser.Scene {
       cam.zoom
     );
 
-    const dx = Math.abs(offsetX - this.lastOffsets.offsetX);
-    const dy = Math.abs(offsetY - this.lastOffsets.offsetY);
-
-    if (force || dx > 0.25 || dy > 0.25) {
+    if (
+      force ||
+      Math.abs(offsetX - this.lastOffsets.offsetX) > 0.25 ||
+      Math.abs(offsetY - this.lastOffsets.offsetY) > 0.25
+    ) {
       this.lastOffsets = { offsetX, offsetY };
       this.dragController.setOffsets(offsetX, offsetY);
     }
@@ -169,300 +195,289 @@ export default class IsoScene extends Phaser.Scene {
   private getCamCenter(): { cx: number; cy: number } {
     const cam = this.cameras.main;
     return {
-      cx: cam.scrollX + (cam.width * 0.5) / cam.zoom,
+      cx: cam.scrollX + (cam.width  * 0.5) / cam.zoom,
       cy: cam.scrollY + (cam.height * 0.5) / cam.zoom,
     };
   }
 
-  /* ============================ INPUT HANDLERS ============================ */
+  /* ================================================================== */
+  /*  INPUT                                                              */
+  /* ================================================================== */
 
   private setupInputHandlers(): void {
-    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+    /* drag fantasma move */
+    this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
       if (this.dragController.getState().isDragging) {
-        this.dragController.updateDrag({
-          x: pointer.worldX,
-          y: pointer.worldY,
-        });
+        this.dragController.updateDrag({ x: p.worldX, y: p.worldY });
       }
     });
 
-    this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
-      const state = this.dragController.getState();
-      if (state.isDragging && state.tile) {
-        this.dragController.endDrag({
-          x: pointer.worldX,
-          y: pointer.worldY,
-        });
+    /* mouse up → finaliza drag */
+    this.input.on('pointerup', (p: Phaser.Input.Pointer) => {
+      const st = this.dragController.getState();
+      if (st.isDragging && st.tile) {
+        this.dragController.endDrag({ x: p.worldX, y: p.worldY });
       }
     });
 
-    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+    /* pointer down */
+    this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
       if (this.dragController.getState().isDragging) return;
 
-      const clicked = this.findTileAtPositionOptimized(
-        pointer.worldX,
-        pointer.worldY
-      );
+      const clicked = this.findTileAtPositionOptimized(p.worldX, p.worldY);
 
-      if (pointer.rightButtonDown()) {
+      if (p.rightButtonDown()) {
         if (clicked && this.onTileInfo) {
-          const rect = this.game.canvas.getBoundingClientRect();
+          const r = this.game.canvas.getBoundingClientRect();
           this.onTileInfo(clicked.tile, {
-            x: pointer.x + rect.left,
-            y: pointer.y + rect.top,
+            x: p.x + r.left,
+            y: p.y + r.top,
           });
         }
-      } else if (pointer.leftButtonDown()) {
+      } else if (p.leftButtonDown()) {
         if (clicked && this.onTileDragStart) {
-          const rect = this.game.canvas.getBoundingClientRect();
+          const r = this.game.canvas.getBoundingClientRect();
           this.onTileDragStart(clicked.tile, clicked.x, clicked.y, {
-            clientX: pointer.x + rect.left,
-            clientY: pointer.y + rect.top,
+            clientX: p.x + r.left,
+            clientY: p.y + r.top,
           });
         }
       }
     });
   }
 
-  /* ============================== VIEWPORT ================================ */
+  /* ================================================================== */
+  /*  VIEWPORT & RENDER                                                  */
+  /* ================================================================== */
 
   private shouldThrottle(now: number): boolean {
-    const dt = now - this.lastRenderAt;
-    return dt < (this.cameras.main.zoom < 0.4 ? 55 : RERENDER_THROTTLE_MS);
+    return now - this.lastRenderAt < (
+      this.cameras.main.zoom < 0.4 ? 55 : RERENDER_THROTTLE_MS
+    );
   }
 
   private updateViewportAndRender(): void {
     const now = this.time.now;
-    if (this.shouldThrottle(now)) return;
+    if (!this.forceRedraw && this.shouldThrottle(now)) return;
     this.lastRenderAt = now;
 
-    const cam = this.cameras.main;
+    const cam  = this.cameras.main;
     const zoom = cam.zoom;
+
     const { cx, cy } = this.getCamCenter();
-    const useCulling = shouldUseViewportCulling(
-      this.boardConfig.width,
-      this.boardConfig.height
+    const { offsetX, offsetY } = calculateDynamicIsoOffsets(
+      cam.width, cam.height, 0, 0, zoom
+    );
+    const boardCx = cx - offsetX;
+    const boardCy = cy - offsetY;
+
+    const useCull = shouldUseViewportCulling(
+      this.boardConfig.width, this.boardConfig.height
     );
 
-    if (useCulling) {
+    if (useCull) {
       const visible = calculateVisibleTileRange(
-        cx,
-        cy,
-        zoom,
-        cam.width,
-        cam.height,
-        TILE_SIZE,
-        TILE_HEIGHT,
-        this.boardConfig.width,
-        this.boardConfig.height
+        boardCx, boardCy, zoom,
+        cam.width, cam.height,
+        TILE_SIZE, TILE_HEIGHT,
+        this.boardConfig.width, this.boardConfig.height
       );
 
       const lastZoom = this.lastCameraPosition?.zoom ?? 0;
-      const changed = hasSignificantViewportChange(
-        visible,
-        this.lastVisibleRange,
-        zoom,
-        lastZoom
-      );
-      if (!changed) return;
+      const changed  =
+        this.forceRedraw ||
+        hasSignificantViewportChange(
+          visible, this.lastVisibleRange, zoom, lastZoom
+        );
 
-      this.lastVisibleRange = visible;
-      this.lastCameraPosition = { x: cx, y: cy, zoom };
+      if (!changed) { this.forceRedraw = false; return; }
 
-      const query: SpatialQuery = {
-        minX: visible.startX,
-        maxX: visible.endX,
-        minY: visible.startY,
-        maxY: visible.endY,
+      this.lastVisibleRange  = visible;
+      this.lastCameraPosition = { x: boardCx, y: boardCy, zoom };
+
+      const q: SpatialQuery = {
+        minX: visible.startX, maxX: visible.endX,
+        minY: visible.startY, maxY: visible.endY,
       };
-      const tiles = this.boardManager.getVisibleTiles(query);
-      this.redrawBoardOptimized(tiles);
+
+      const tilesToDraw = this.boardManager.getVisibleTiles(q);
+      this.redrawBoardOptimized(tilesToDraw);
 
       const lod = calculateLevelOfDetail(zoom);
       this.drawGridOptimized(visible, lod);
     } else {
       const changed =
+        this.forceRedraw ||
         !this.lastCameraPosition ||
         Math.abs(this.lastCameraPosition.zoom - zoom) > 0.002 ||
-        Math.abs(this.lastCameraPosition.x - cx) > 8 ||
-        Math.abs(this.lastCameraPosition.y - cy) > 8;
+        Math.abs(this.lastCameraPosition.x - boardCx)   > 8 ||
+        Math.abs(this.lastCameraPosition.y - boardCy)   > 8;
 
-      if (!changed) return;
+      if (!changed) { this.forceRedraw = false; return; }
 
-      this.lastCameraPosition = { x: cx, y: cy, zoom };
+      this.lastCameraPosition = { x: boardCx, y: boardCy, zoom };
 
       this.redrawBoardOptimized(this.boardManager.getState());
 
       const lod = calculateLevelOfDetail(zoom);
       if (shouldRenderGrid(zoom, lod)) {
-        const fullRange: VisibleTileRange = {
+        const full: VisibleTileRange = {
           startX: 0,
-          endX: this.boardConfig.width - 1,
+          endX  : this.boardConfig.width  - 1,
           startY: 0,
-          endY: this.boardConfig.height - 1,
+          endY  : this.boardConfig.height - 1,
           totalTiles: this.boardConfig.width * this.boardConfig.height,
         };
-        this.drawGridOptimized(fullRange, lod);
+        this.drawGridOptimized(full, lod);
       } else {
         this.gridGraphics.clear();
       }
     }
+
+    this.forceRedraw = false;
   }
 
-  private forceInitialRender(): void {
+  private forceInitialRender() {
+    this.forceRedraw = true;
     this.updateViewportAndRender();
   }
 
-  /* ============================= RENDER GRID ============================== */
+  /* ================================================================== */
+  /*  GRID                                                               */
+  /* ================================================================== */
 
-  private drawGridOptimized(
-    visible: VisibleTileRange,
-    lod: number
-  ): void {
+  private drawGridOptimized(v: VisibleTileRange, lod: number) {
     const zoom = this.cameras.main.zoom;
-    if (!shouldRenderGrid(zoom, lod)) {
-      this.gridGraphics.clear();
-      return;
-    }
+    if (!shouldRenderGrid(zoom, lod)) { this.gridGraphics.clear(); return; }
 
     this.gridGraphics.clear();
     this.gridGraphics.lineStyle(2, 0xaaaaaa, 0.5);
 
     const cam = this.cameras.main;
     const { offsetX, offsetY } = calculateDynamicIsoOffsets(
-      cam.width,
-      cam.height,
-      0,
-      0,
-      cam.zoom
+      cam.width, cam.height, 0, 0, zoom
     );
 
     const step = getGridSamplingRate(zoom);
 
-    for (let x = visible.startX; x <= visible.endX; x += step) {
-      for (let y = visible.startY; y <= visible.endY; y += step) {
+    for (let x = v.startX; x <= v.endX; x += step) {
+      for (let y = v.startY; y <= v.endY; y += step) {
         if (x >= this.boardConfig.width || y >= this.boardConfig.height) continue;
 
-        const { x: sX, y: sY } = toScreenPos(x, y, TILE_SIZE, TILE_HEIGHT);
-        const wX = sX + offsetX;
-        const wY = sY + offsetY;
+        const { x: sx, y: sy } = toScreenPos(x, y, TILE_SIZE, TILE_HEIGHT);
+        const wx = sx + offsetX;
+        const wy = sy + offsetY;
 
         this.gridGraphics.beginPath();
-        this.gridGraphics.moveTo(wX, wY - TILE_HEIGHT / 2);
-        this.gridGraphics.lineTo(wX + TILE_SIZE / 2, wY);
-        this.gridGraphics.lineTo(wX, wY + TILE_HEIGHT / 2);
-        this.gridGraphics.lineTo(wX - TILE_SIZE / 2, wY);
+        this.gridGraphics.moveTo(wx, wy - TILE_HEIGHT / 2);
+        this.gridGraphics.lineTo(wx + TILE_SIZE / 2, wy);
+        this.gridGraphics.lineTo(wx, wy + TILE_HEIGHT / 2);
+        this.gridGraphics.lineTo(wx - TILE_SIZE / 2, wy);
         this.gridGraphics.closePath();
         this.gridGraphics.strokePath();
 
         if (lod >= 3 && step === 1) {
           this.gridGraphics.fillStyle(0x666666, 0.8);
-          this.gridGraphics.fillCircle(wX, wY, 2);
+          this.gridGraphics.fillCircle(wx, wy, 2);
         }
       }
     }
   }
 
-  /* =========================== BOARD RENDERING ============================ */
+  /* ================================================================== */
+  /*  RENDER DO TABULEIRO                                                */
+  /* ================================================================== */
 
   private redrawBoardOptimized(
     tiles: Array<{ x: number; y: number; tile: TileData }>
   ): void {
-    if (!tiles.length) {
-      this.graphics.clear();
-      return;
-    }
+    if (!tiles.length) { this.graphics.clear(); return; }
 
     const cam = this.cameras.main;
     const { offsetX, offsetY } = calculateDynamicIsoOffsets(
-      cam.width,
-      cam.height,
-      0,
-      0,
-      cam.zoom
+      cam.width, cam.height, 0, 0, cam.zoom
     );
 
     const zoom = cam.zoom;
-    const lod = calculateLevelOfDetail(zoom);
+    const lod  = calculateLevelOfDetail(zoom);
     const drawDecor = shouldRenderDecorations(zoom, lod);
 
-    /* Debug */
-    const total = this.boardConfig.width * this.boardConfig.height;
+    /* DEBUG HUD */
     if (this.debugText) {
-      const useCull = shouldUseViewportCulling(
-        this.boardConfig.width,
-        this.boardConfig.height
-      );
+      const total = this.boardConfig.width * this.boardConfig.height;
       this.debugText.setText([
-        `Board: ${this.boardConfig.width} x ${this.boardConfig.height}`,
-        useCull ? `Culling: ${tiles.length} / ${total}` : `No Culling`,
+        `Board: ${this.boardConfig.width}×${this.boardConfig.height}`,
+        shouldUseViewportCulling(this.boardConfig.width, this.boardConfig.height)
+          ? `Culling: ${tiles.length}/${total}`
+          : `No Culling`,
         `Zoom: ${zoom.toFixed(2)}`,
       ]);
     }
 
-    /* Desenho */
+    /* agrupa por cor */
+    const byColor = new Map<number, Array<{ x: number; y: number }>>();
+    tiles.forEach(t => {
+      const arr = byColor.get(t.tile.color) ?? [];
+      arr.push({ x: t.x, y: t.y });
+      byColor.set(t.tile.color, arr);
+    });
+
     this.graphics.clear();
 
-    const byColor = new Map<number, Array<{ x: number; y: number }>>();
-    for (const { x, y, tile } of tiles) {
-      const list = byColor.get(tile.color) ?? [];
-      list.push({ x, y });
-      byColor.set(tile.color, list);
-    }
-
+    /* desenha cada cor em lote */
     byColor.forEach((list, color) => {
       this.graphics.fillStyle(color, 1).beginPath();
 
-      for (const { x, y } of list) {
-        const { x: sX, y: sY } = toScreenPos(x, y, TILE_SIZE, TILE_HEIGHT);
-        const wX = sX + offsetX;
-        const wY = sY + offsetY;
+      let quads = 0;
+      list.forEach(({ x, y }) => {
+        if (quads >= MAX_QUADS_PER_BATCH) {
+          this.graphics.fillPath();
+          if (drawDecor) this.graphics.lineStyle(2, 0x000000, 1).strokePath();
+          this.graphics.beginPath();
+          quads = 0;
+        }
 
-        this.graphics.moveTo(wX, wY - TILE_HEIGHT / 2);
-        this.graphics.lineTo(wX + TILE_SIZE / 2, wY);
-        this.graphics.lineTo(wX, wY + TILE_HEIGHT / 2);
-        this.graphics.lineTo(wX - TILE_SIZE / 2, wY);
+        const { x: sx, y: sy } = toScreenPos(x, y, TILE_SIZE, TILE_HEIGHT);
+        const wx = sx + offsetX;
+        const wy = sy + offsetY;
+
+        this.graphics.moveTo(wx, wy - TILE_HEIGHT / 2);
+        this.graphics.lineTo(wx + TILE_SIZE / 2, wy);
+        this.graphics.lineTo(wx, wy + TILE_HEIGHT / 2);
+        this.graphics.lineTo(wx - TILE_SIZE / 2, wy);
         this.graphics.closePath();
-      }
+        quads++;
+      });
 
       this.graphics.fillPath();
-
-      if (drawDecor) {
-        this.graphics.lineStyle(2, 0x000000, 1).strokePath();
-      }
-
-      this.graphics.beginPath();
+      if (drawDecor) this.graphics.lineStyle(2, 0x000000, 1).strokePath();
     });
   }
 
-  /* =============================== GHOST =================================== */
+  /* ================================================================== */
+  /*  GHOST TILE                                                         */
+  /* ================================================================== */
 
   private redrawGhost(): void {
     this.ghostGraphics.clear();
 
-    const state = this.dragController.getState();
-    if (!state.isDragging || !state.tile || !state.ghostPos) return;
+    const st = this.dragController.getState();
+    if (!st.isDragging || !st.tile || !st.ghostPos) return;
 
     const cam = this.cameras.main;
     const { offsetX, offsetY } = calculateDynamicIsoOffsets(
-      cam.width,
-      cam.height,
-      0,
-      0,
-      cam.zoom
+      cam.width, cam.height, 0, 0, cam.zoom
     );
 
-    const coords = screenToTileWithSnap(
-      state.ghostPos.x - offsetX,
-      state.ghostPos.y - offsetY,
-      TILE_SIZE,
-      TILE_HEIGHT,
-      this.boardConfig.width,
-      this.boardConfig.height
+    const snapped = screenToTileWithSnap(
+      st.ghostPos.x - offsetX,
+      st.ghostPos.y - offsetY,
+      TILE_SIZE, TILE_HEIGHT,
+      this.boardConfig.width, this.boardConfig.height
     );
 
     const drawDia = (cx: number, cy: number, a: number, stroke: number) => {
-      this.ghostGraphics.fillStyle(state.tile!.color, a);
+      this.ghostGraphics.fillStyle(st.tile!.color, a);
       this.ghostGraphics.beginPath();
       this.ghostGraphics.moveTo(cx, cy - TILE_HEIGHT / 2);
       this.ghostGraphics.lineTo(cx + TILE_SIZE / 2, cy);
@@ -473,118 +488,91 @@ export default class IsoScene extends Phaser.Scene {
       this.ghostGraphics.lineStyle(3, stroke, 0.9).strokePath();
     };
 
-    if (coords) {
-      const { x: sX, y: sY } = toScreenPos(
-        coords.tileX,
-        coords.tileY,
-        TILE_SIZE,
-        TILE_HEIGHT
+    if (snapped) {
+      const { x: sx, y: sy } = toScreenPos(
+        snapped.tileX, snapped.tileY, TILE_SIZE, TILE_HEIGHT
       );
-      drawDia(sX + offsetX, sY + offsetY, 0.7, 0x00ff00);
+      drawDia(sx + offsetX, sy + offsetY, 0.7, 0x00ff00);
     } else {
-      drawDia(state.ghostPos.x, state.ghostPos.y, 0.3, 0xff0000);
+      drawDia(st.ghostPos.x, st.ghostPos.y, 0.3, 0xff0000);
     }
   }
 
-  /* ============================= FIND TILE ================================ */
+  /* ================================================================== */
+  /*  TILE PICKING                                                       */
+  /* ================================================================== */
 
   private findTileAtPositionOptimized(
-    worldX: number,
-    worldY: number
+    worldX: number, worldY: number
   ): { tile: TileData; x: number; y: number } | null {
     const cam = this.cameras.main;
     const { offsetX, offsetY } = calculateDynamicIsoOffsets(
-      cam.width,
-      cam.height,
-      0,
-      0,
-      cam.zoom
+      cam.width, cam.height, 0, 0, cam.zoom
     );
 
+    /* --- abordagem para boards grandes usa spatial index --- */
     if (this.isLargeBoard) {
-      const coords = screenToTileWithSnap(
-        worldX - offsetX,
-        worldY - offsetY,
-        TILE_SIZE,
-        TILE_HEIGHT,
-        this.boardConfig.width,
-        this.boardConfig.height
+      const snap = screenToTileWithSnap(
+        worldX - offsetX, worldY - offsetY,
+        TILE_SIZE, TILE_HEIGHT,
+        this.boardConfig.width, this.boardConfig.height
       );
-      if (coords) {
-        const tile = this.boardManager.getTileAt(coords.tileX, coords.tileY);
-        if (tile) return { tile, x: coords.tileX, y: coords.tileY };
+      if (snap) {
+        const tile = this.boardManager.getTileAt(snap.tileX, snap.tileY);
+        if (tile) return { tile, x: snap.tileX, y: snap.tileY };
       }
 
       const tc = toTilePos(
-        worldX - offsetX,
-        worldY - offsetY,
-        TILE_SIZE,
-        TILE_HEIGHT
+        worldX - offsetX, worldY - offsetY,
+        TILE_SIZE, TILE_HEIGHT
       );
       const nearby = this.boardManager.getTilesNearPoint(
-        tc.tileX,
-        tc.tileY,
-        1.5
+        tc.tileX, tc.tileY, 1.5
       );
 
       for (const t of nearby) {
-        if (
-          isPointInIsometricTile(
-            worldX,
-            worldY,
-            t.x,
-            t.y,
-            TILE_SIZE,
-            TILE_HEIGHT,
-            offsetX,
-            offsetY
-          )
-        ) {
+        if (isPointInIsometricTile(
+          worldX, worldY,
+          t.x, t.y,
+          TILE_SIZE, TILE_HEIGHT,
+          offsetX, offsetY
+        )) {
           return { tile: t.tile, x: t.x, y: t.y };
         }
       }
       return null;
     }
 
+    /* --- boards pequenos: brute-force --- */
     const tiles = this.boardManager.getState();
     for (const t of tiles) {
-      if (
-        isPointInIsometricTile(
-          worldX,
-          worldY,
-          t.x,
-          t.y,
-          TILE_SIZE,
-          TILE_HEIGHT,
-          offsetX,
-          offsetY
-        )
-      ) {
+      if (isPointInIsometricTile(
+        worldX, worldY,
+        t.x, t.y,
+        TILE_SIZE, TILE_HEIGHT,
+        offsetX, offsetY
+      ))
         return { tile: t.tile, x: t.x, y: t.y };
-      }
     }
 
-    const coords = screenToTileWithSnap(
-      worldX - offsetX,
-      worldY - offsetY,
-      TILE_SIZE,
-      TILE_HEIGHT,
-      this.boardConfig.width,
-      this.boardConfig.height
+    /* fallback snap */
+    const snap = screenToTileWithSnap(
+      worldX - offsetX, worldY - offsetY,
+      TILE_SIZE, TILE_HEIGHT,
+      this.boardConfig.width, this.boardConfig.height
     );
-    if (coords) {
-      const found = tiles.find(
-        (t) => t.x === coords.tileX && t.y === coords.tileY
-      );
+    if (snap) {
+      const found = tiles.find(t => t.x === snap.tileX && t.y === snap.tileY);
       if (found) return { tile: found.tile, x: found.x, y: found.y };
     }
 
     return null;
   }
 
-  /* ============================ EXAMPLE TILES ============================ */
-
-  private addExampleTiles(): void {
+  /* ================================================================== */
+  /*  EXEMPLO DE TILES                                                   */
+  /* ================================================================== */
+  private addExampleTiles() {
     [
       { x: 0, y: 0, color: 0x8ecae6 },
       { x: 1, y: 0, color: 0xffb703 },
