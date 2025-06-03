@@ -4,10 +4,22 @@ import { gridToScreen } from '../core/math/isoCoordinate';
 import type { TileData } from '../core/models/Tile';
 
 export interface IsoBoardCanvasProps {
+  /** Array of all tiles to render */
   tiles: TileData[];
+  /** Tile dimensions in pixels */
   tileSize: { width: number; height: number };
+  /** Camera offset in world coordinates (grid units) */
   cameraOffset?: { x: number; y: number };
+  /** Camera zoom factor */
   cameraZoom?: number;
+  /**
+   * Callback to draw a single tile.
+   * @param ctx - Canvas 2D rendering context
+   * @param tile - Tile to draw
+   * @param screenX - X coordinate on the canvas (world → screen)
+   * @param screenY - Y coordinate on the canvas
+   * @param zoom - Current zoom factor
+   */
   renderTile: (
     ctx: CanvasRenderingContext2D,
     tile: TileData,
@@ -15,12 +27,16 @@ export interface IsoBoardCanvasProps {
     screenY: number,
     zoom: number
   ) => void;
+  /** Background color of the canvas */
   backgroundColor?: string;
 }
 
 /**
- * Este componente agora usa `forwardRef` para expor a referência do <canvas>
- * para o CameraHandler, evitando `document.querySelector('canvas')`.
+ * IsoBoardCanvas renders an isometric board on a <canvas> element.
+ *
+ * - It exposes its <canvas> element via forwardRef, so that parent components
+ *   (e.g. CameraHandler) can attach event listeners directly to it.
+ * - All pan and zoom transformations are applied via the canvas context transform.
  */
 export const IsoBoardCanvas = forwardRef(function IsoBoardCanvas(
   {
@@ -35,7 +51,7 @@ export const IsoBoardCanvas = forwardRef(function IsoBoardCanvas(
 ) {
   const internalRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Se o usuário passou um ref externo, ligamos a ambos
+  // Link the external ref to our internal canvas ref
   useEffect(() => {
     if (typeof ref === 'function') {
       ref(internalRef.current);
@@ -45,6 +61,7 @@ export const IsoBoardCanvas = forwardRef(function IsoBoardCanvas(
     }
   }, [ref]);
 
+  // Redraw on any dependency change
   useEffect(() => {
     const canvas = internalRef.current;
     if (!canvas) return;
@@ -52,25 +69,22 @@ export const IsoBoardCanvas = forwardRef(function IsoBoardCanvas(
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // ---- 1) Ajusta tamanho do canvas para preencher a janela ----
+    // Adjust canvas size to fill the window, then draw
     const updateSize = () => {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
-      // Depois de ajustar o tamanho, vamos redesenhar o conteúdo
       draw();
     };
 
-    // ---- 2) Desenha todo o conteúdo do canvas (pan/zoom + tiles) ----
+    // Draw all tiles with the current pan/zoom
     const draw = () => {
-      // Primeiro, limpamos TODO o canvas SEM zoom aplicado
+      // 1) Clear entire canvas without zoom transform
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.restore();
 
-      // 3) Agora aplicamos transform do zoom e pan via setTransform
-      //    Mover o contexto pela tradução (offsetX, offsetY), depois escalar
-      //    Note que o offset é multiplicado pelo zoom para funcionar corretamente
+      // 2) Apply pan and zoom via context transform
       ctx.setTransform(
         cameraZoom,
         0,
@@ -80,13 +94,17 @@ export const IsoBoardCanvas = forwardRef(function IsoBoardCanvas(
         -cameraOffset.y * cameraZoom
       );
 
-      // 4) Pinta o fundo (já em escala normal, mas como checamos antes, vai cobrir tudo)
+      // 3) Fill background
       ctx.fillStyle = backgroundColor;
-      ctx.fillRect(0, 0, canvas.width / cameraZoom, canvas.height / cameraZoom);
+      ctx.fillRect(
+        0,
+        0,
+        canvas.width / cameraZoom,
+        canvas.height / cameraZoom
+      );
 
-      // 5) Renderiza cada tile nas coordenadas calculadas
+      // 4) Render each tile at its computed screen position
       for (const tile of tiles) {
-        // Converte posição lógica para tela (sem considerar zoom, pois aplicamos via transform)
         const { x, y } = gridToScreen(
           tile.position,
           tileSize.width,
@@ -98,21 +116,17 @@ export const IsoBoardCanvas = forwardRef(function IsoBoardCanvas(
       }
     };
 
-    // Desenha pela primeira vez
+    // Initial draw and size setup
     updateSize();
-
-    // Sempre que alguma dependência mudar, redesenha
-    // (tileSize não entra no cálculo diretamente, mas pode afetar se renderTile usar)
   }, [tiles, tileSize, cameraOffset, cameraZoom, renderTile, backgroundColor]);
 
-  // Escutamos redimensionamento de janela para ajustar canvas
+  // Handle window resize to adjust canvas dimensions
   useEffect(() => {
     const handleResize = () => {
       const canvas = internalRef.current;
       if (!canvas) return;
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
-      // Note: o draw já está embutido no useEffect anterior via mudança de cameraZoom, etc.
     };
     window.addEventListener('resize', handleResize);
     return () => {
