@@ -21,22 +21,23 @@ export function useBoardController(boardConfig: { width: number; height: number 
     [boardConfig.width, boardConfig.height]
   );
 
-  // 2) Cria a Camera model com dimensões apropriadas
+  // 2) Cria a Camera model com navegação completamente livre
   const cameraModel = useMemo(
     () => {
       // Dimensões padrão para o viewport
       const defaultViewport = { width: 800, height: 600 };
       
-      // Calcula o tamanho do board em pixels baseado nas dimensões isométricas
-      const boardWidthPx = (boardConfig.width + boardConfig.height) * (TILE_SIZE / 2);
-      const boardHeightPx = (boardConfig.width + boardConfig.height) * (TILE_HEIGHT / 2);
+      // Para navegação livre, vamos usar dimensões muito amplas que não limitem a navegação
+      // Isso permite que o usuário navegue livremente por toda a área disponível
+      const boardWidthPx = Math.max(8000, (boardConfig.width + boardConfig.height) * TILE_SIZE);
+      const boardHeightPx = Math.max(6000, (boardConfig.width + boardConfig.height) * TILE_HEIGHT);
       
       return new Camera(
-        { x: 0, y: 0 },
-        1.0,
+        { x: 0, y: 0 }, // Posição inicial no centro
+        1.0, // Zoom inicial
         defaultViewport,
-        { width: boardWidthPx, height: boardHeightPx },
-        false // Ativa navegação livre por padrão
+        { width: boardWidthPx, height: boardHeightPx }, // Área muito ampla para navegação livre
+        true // ✅ Ativar navegação livre - permite navegação completa sem limitações
       );
     },
     [boardConfig.width, boardConfig.height]

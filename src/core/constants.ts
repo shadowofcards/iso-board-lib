@@ -1,25 +1,53 @@
 /**
- * Constantes básicas de dimensões e lista de tiles disponíveis.
+ * Dimensões-base do grid isométrico,
+ * lista de tiles de exemplo e utilitários de cor/offset.
  */
 
 import type { TileData } from './models/Tile';
 
-export const TILE_SIZE = 128;
-export const TILE_HEIGHT = 64;
+export const TILE_SIZE   = 128;
+export const TILE_HEIGHT =  64;
+
+/* ------------------------------------------------------------------ */
+/*  OFFSETS                                                           */
+/* ------------------------------------------------------------------ */
 
 /**
- * Calcula os offsets para centralizar o tabuleiro isométrico
- * @param viewportWidth Largura do viewport em pixels
- * @param viewportHeight Altura do viewport em pixels
- * @returns Offsets X e Y para centralizar o grid
+ * Offset fixo para centralizar o grid.
+ * A câmera do Phaser é que fará todo o pan/zoom;
+ * aqui devolvemos apenas uma translação constante
+ * para posicionar o tile (0,0) perto do centro da tela.
+ *
+ *  - viewportWidth/viewportHeight estão em pixels de tela
+ *  - zoom: fator atual da câmera (1 = 100 %)
+ *
+ * Retorna coordenadas em unidades de “mundo” (não-escaladas).
  */
-export function calculateIsoOffsets(viewportWidth: number, viewportHeight: number) {
-  return { offsetX: viewportWidth / 2, offsetY: viewportHeight / 2 };
+export function calculateDynamicIsoOffsets(
+  viewportWidth:  number,
+  viewportHeight: number,
+  _cameraX: number = 0,   // << ignorado agora
+  _cameraY: number = 0,   // << ignorado agora
+  zoom: number    = 1
+) {
+  // converte metade da tela para unidades de mundo
+  const halfW = (viewportWidth  * 0.5) / zoom;
+  const halfH = (viewportHeight * 0.5) / zoom;
+
+  return { offsetX: halfW, offsetY: halfH };
 }
 
 /**
- * Tiles disponíveis por padrão. Cada tile tem id, tipo, cor (hex) e metadados opcionais.
+ * Conversão 0xRRGGBB → "RRGGBB".
  */
+export function formatHex(color: number): string {
+  return color.toString(16).padStart(6, '0');
+}
+
+/* ------------------------------------------------------------------ */
+/*  TILES DE EXEMPLO (mantidos)                                       */
+/* ------------------------------------------------------------------ */
+
 export const AVAILABLE_TILES: TileData[] = [
   {
     id: '1',
@@ -35,8 +63,8 @@ export const AVAILABLE_TILES: TileData[] = [
         custo: 10,
         tipo: 'Terreno',
         produção: 'Nenhuma',
-        resistencia: 'Baixa'
-      }
+        resistencia: 'Baixa',
+      },
     },
   },
   {
@@ -53,8 +81,8 @@ export const AVAILABLE_TILES: TileData[] = [
         custo: 5,
         tipo: 'Terreno',
         produção: 'Vidro',
-        resistencia: 'Muito Baixa'
-      }
+        resistencia: 'Muito Baixa',
+      },
     },
   },
   {
@@ -71,8 +99,8 @@ export const AVAILABLE_TILES: TileData[] = [
         custo: 25,
         tipo: 'Vegetal',
         produção: 'Madeira',
-        resistencia: 'Média'
-      }
+        resistencia: 'Média',
+      },
     },
   },
   {
@@ -89,8 +117,8 @@ export const AVAILABLE_TILES: TileData[] = [
         custo: 30,
         tipo: 'Mineral',
         produção: 'Pedra',
-        resistencia: 'Alta'
-      }
+        resistencia: 'Alta',
+      },
     },
   },
   {
@@ -107,17 +135,8 @@ export const AVAILABLE_TILES: TileData[] = [
         custo: 0,
         tipo: 'Líquido',
         produção: 'Pesca',
-        resistencia: 'Nenhuma'
-      }
+        resistencia: 'Nenhuma',
+      },
     },
   },
 ];
-
-/**
- * Converte número inteiro de cor (0xRRGGBB) para string hexadecimal de 6 dígitos,
- * sem o prefixo '#', útil em CSS inline.
- */
-export function formatHex(color: number): string {
-  const hex = color.toString(16).padStart(6, '0');
-  return hex;
-}
