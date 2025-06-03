@@ -1,19 +1,23 @@
-import { useEffect, useCallback, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import { Camera } from '../core/models/Camera';
-import { 
-  KEYBOARD_PAN_SPEED, 
-  KEYBOARD_PAN_SPEED_FAST, 
+import {
+  KEYBOARD_PAN_SPEED,
+  KEYBOARD_PAN_SPEED_FAST,
   KEYBOARD_ZOOM_STEP,
   CONTROLS_KEYS,
   TELEPORT_ANIMATION_MS,
-  AUTO_FOLLOW_SMOOTH_FACTOR
+  AUTO_FOLLOW_SMOOTH_FACTOR,
 } from '../core/config';
 
-export interface Point2D {
-  x: number;
-  y: number;
-}
-
+/* ------------------------------------------------------------------ */
+/*  Tipos públicos                                                     */
+/* ------------------------------------------------------------------ */
+export interface Point2D { x: number; y: number }
 export interface BookmarkData {
   id: string;
   name: string;
@@ -23,360 +27,274 @@ export interface BookmarkData {
 }
 
 export interface AdvancedBoardControlsOptions {
-  /** Se deve ativar controles por teclado */
   enableKeyboardControls?: boolean;
-  /** Se deve ativar animações suaves */
   enableSmoothAnimations?: boolean;
-  /** Referência do container para eventos de teclado */
   containerRef?: React.RefObject<HTMLElement>;
 }
 
-/**
- * Hook avançado para controle de board isométrico com funcionalidades extras
- */
+/* ------------------------------------------------------------------ */
+/*  Hook                                                               */
+/* ------------------------------------------------------------------ */
 export function useAdvancedBoardControls(
-  cameraModel: Camera,
-  options: AdvancedBoardControlsOptions = {}
-) {
-  const {
+  camera: Camera,
+  {
     enableKeyboardControls = true,
     enableSmoothAnimations = true,
-    containerRef
-  } = options;
+    containerRef,
+  }: AdvancedBoardControlsOptions = {},
+) {
+  /* ======================   STATE React   ======================= */
+  const [bookmarks,  setBookmarks]  = useState<BookmarkData[]>([]);
+  const [isAnimating, setAnimating] = useState(false);
+  const [followTarget, setFollow]   = useState<Point2D | null>(null);
 
-  // Estados
-  const [pressedKeys, setPressedKeys] = useState<Set<string>>(new Set());
-  const [bookmarks, setBookmarks] = useState<BookmarkData[]>([]);
-  const [isAnimating, setIsAnimating] = useState(false);
-  const [followTarget, setFollowTarget] = useState<Point2D | null>(null);
-  
-  // Refs para animações
-  const animationRef = useRef<number | undefined>(undefined);
-  const followAnimationRef = useRef<number | undefined>(undefined);
-  const keyboardLoopRef = useRef<number | undefined>(undefined);
+  /* ======================   REFS mutáveis  ====================== */
+  const keysRef          = useRef<Set<string>>(new Set());
+  const rafKeyboardRef   = useRef<number | null>(null);
+  const rafTeleportRef   = useRef<number | null>(null);
+  const rafFollowRef     = useRef<number | null>(null);
 
-  // === TELEPORTE SUAVE ===
-  const teleportTo = useCallback((targetPos: Point2D, targetZoom?: number) => {
-    if (!enableSmoothAnimations) {
-      cameraModel.pan(
-        targetPos.x - cameraModel.getPosition().x,
-        targetPos.y - cameraModel.getPosition().y
-      );
-      if (targetZoom !== undefined) {
-        cameraModel.zoomBy((targetZoom - cameraModel.getZoom()) * 100);
+  /* =============================================================== */
+  /*  Util: distinguir INPUT/TEXTAREA                                */
+  /* =============================================================== */
+  const isInputField = (t: EventTarget | null): t is HTMLElement =>
+    t instanceof HTMLElement &&
+    (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+
+  /* =============================================================== */
+  /*  Teleporte (animado opcional)                                   */
+  /* =============================================================== */
+  const teleportTo = useCallback(
+    (dest: Point2D, destZoom?: number) => {
+      /* 1) simples, sem animação ---------------------------------- */
+      if (!enableSmoothAnimations) {
+        camera.pan(dest.x - camera.getPosition().x,
+                   dest.y - camera.getPosition().y);
+        if (destZoom !== undefined) {
+          camera.zoomBy((destZoom - camera.getZoom()) * 100);
+        }
+        return;
       }
-      return;
+
+      /* 2) animado ------------------------------------------------- */
+      const start     = camera.getPosition();
+      const startZoom = camera.getZoom();
+      const endZoom   = destZoom ?? startZoom;
+      const t0        = performance.now();
+
+      setAnimating(true);
+
+      const step = (now: number) => {
+        const p    = Math.min((now - t0) / TELEPORT_ANIMATION_MS, 1);
+        const ease = 1 - Math.pow(1 - p, 3);
+
+        const x = start.x + (dest.x - start.x) * ease;
+        const y = start.y + (dest.y - start.y) * ease;
+        const z = startZoom + (endZoom - startZoom) * ease;
+
+        camera.pan(x - camera.getPosition().x,
+                   y - camera.getPosition().y);
+        camera.zoomBy((z - camera.getZoom()) * 100);
+
+        if (p < 1) {
+          rafTeleportRef.current = requestAnimationFrame(step);
+        } else {
+          setAnimating(false);
+          rafTeleportRef.current = null;
+        }
+      };
+
+      if (rafTeleportRef.current !== null) {
+        cancelAnimationFrame(rafTeleportRef.current);
+      }
+      rafTeleportRef.current = requestAnimationFrame(step);
+    },
+    [camera, enableSmoothAnimations],
+  );
+
+  /* Atalhos prontos */
+  const centerCamera = useCallback(
+    () => teleportTo({ x: 0, y: 0 }),
+    [teleportTo],
+  );
+  const resetZoom = useCallback(
+    () => teleportTo(camera.getPosition(), 1),
+    [teleportTo, camera],
+  );
+
+  /* =============================================================== */
+  /*  Bookmarks                                                      */
+  /* =============================================================== */
+  const addBookmark = useCallback(
+    (name: string, pos?: Point2D, zoom?: number) => {
+      const b: BookmarkData = {
+        id: `bm_${Date.now()}`,
+        name: name || 'bookmark',
+        position: pos  ?? camera.getPosition(),
+        zoom:     zoom ?? camera.getZoom(),
+        timestamp: Date.now(),
+      };
+      setBookmarks(prev => [...prev, b]);
+      return b.id;
+    },
+    [camera],
+  );
+
+  const removeBookmark = useCallback(
+    (id: string) => setBookmarks(bm => bm.filter(b => b.id !== id)),
+    [],
+  );
+
+  const goToBookmark = useCallback(
+    (id: string) => {
+      const bm = bookmarks.find(b => b.id === id);
+      if (bm) teleportTo(bm.position, bm.zoom);
+    },
+    [bookmarks, teleportTo],
+  );
+
+  /* =============================================================== */
+  /*  Auto-follow                                                    */
+  /* =============================================================== */
+  const startFollowing = useCallback((p: Point2D) => setFollow(p), []);
+  const stopFollowing  = useCallback(() => setFollow(null), []);
+
+  /* Loop de follow */
+  useEffect(() => {
+    if (rafFollowRef.current !== null) {
+      cancelAnimationFrame(rafFollowRef.current);
+      rafFollowRef.current = null;
     }
+    if (!followTarget) return;
 
-    setIsAnimating(true);
-    const startPos = cameraModel.getPosition();
-    const startZoom = cameraModel.getZoom();
-    const endZoom = targetZoom ?? startZoom;
-    const startTime = Date.now();
-
-    const animate = () => {
-      const elapsed = Date.now() - startTime;
-      const progress = Math.min(elapsed / TELEPORT_ANIMATION_MS, 1);
-      const easeProgress = 1 - Math.pow(1 - progress, 3);
-
-      const currentX = startPos.x + (targetPos.x - startPos.x) * easeProgress;
-      const currentY = startPos.y + (targetPos.y - startPos.y) * easeProgress;
-      const currentZoom = startZoom + (endZoom - startZoom) * easeProgress;
-
-      cameraModel.pan(currentX - cameraModel.getPosition().x, currentY - cameraModel.getPosition().y);
-      
-      if (Math.abs(currentZoom - cameraModel.getZoom()) > 0.01) {
-        cameraModel.zoomBy((currentZoom - cameraModel.getZoom()) * 100);
+    const loop = () => {
+      const cur = camera.getPosition();
+      const dx  = (followTarget.x - cur.x) * AUTO_FOLLOW_SMOOTH_FACTOR;
+      const dy  = (followTarget.y - cur.y) * AUTO_FOLLOW_SMOOTH_FACTOR;
+      if (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1) {
+        camera.pan(dx, dy);
       }
+      rafFollowRef.current = requestAnimationFrame(loop);
+    };
+    rafFollowRef.current = requestAnimationFrame(loop);
 
-      if (progress < 1) {
-        animationRef.current = requestAnimationFrame(animate);
-      } else {
-        setIsAnimating(false);
+    return () => {
+      if (rafFollowRef.current !== null) {
+        cancelAnimationFrame(rafFollowRef.current);
+        rafFollowRef.current = null;
       }
     };
+  }, [followTarget, camera]);
 
-    if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current);
-    }
-    animationRef.current = requestAnimationFrame(animate);
-  }, [cameraModel, enableSmoothAnimations]);
-
-  // === FUNÇÕES BÁSICAS ===
-  const centerCamera = useCallback(() => {
-    teleportTo({ x: 0, y: 0 });
-  }, [teleportTo]);
-
-  const resetZoom = useCallback(() => {
-    const currentPos = cameraModel.getPosition();
-    teleportTo(currentPos, 1.0);
-  }, [teleportTo, cameraModel]);
-
-  // === BOOKMARKS ===
-  const addBookmark = useCallback((name: string, position?: Point2D, zoom?: number) => {
-    const bookmarkPos = position ?? cameraModel.getPosition();
-    const bookmarkZoom = zoom ?? cameraModel.getZoom();
-    
-    const newBookmark: BookmarkData = {
-      id: `bookmark_${Date.now()}`,
-      name,
-      position: bookmarkPos,
-      zoom: bookmarkZoom,
-      timestamp: Date.now()
-    };
-
-    setBookmarks(prev => [...prev, newBookmark]);
-    return newBookmark.id;
-  }, [cameraModel]);
-
-  const removeBookmark = useCallback((id: string) => {
-    setBookmarks(prev => prev.filter(b => b.id !== id));
-  }, []);
-
-  const goToBookmark = useCallback((id: string) => {
-    const bookmark = bookmarks.find(b => b.id === id);
-    if (bookmark) {
-      teleportTo(bookmark.position, bookmark.zoom);
-    }
-  }, [bookmarks, teleportTo]);
-
-  // === AUTO-SEGUIMENTO ===
-  const startFollowing = useCallback((target: Point2D) => {
-    setFollowTarget(target);
-  }, []);
-
-  const stopFollowing = useCallback(() => {
-    setFollowTarget(null);
-    if (followAnimationRef.current) {
-      cancelAnimationFrame(followAnimationRef.current);
-    }
-  }, []);
-
-  // === CONTROLES DE TECLADO ===
+  /* =============================================================== */
+  /*  Teclado: captura + loop                                         */
+  /* =============================================================== */
   useEffect(() => {
     if (!enableKeyboardControls) return;
 
-    const isInputElement = (target: EventTarget | null): boolean => {
-      if (!target) return false;
-      const element = target as HTMLElement;
-      return element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.isContentEditable;
-    };
+    /* ---------- captura ---------- */
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (isInputField(e.target)) return;
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignorar se estiver digitando em um input/textarea
-      if (isInputElement(e.target)) {
-        return;
+      keysRef.current.add(e.code);
+
+      if ((CONTROLS_KEYS.CENTER as readonly string[]).includes(e.code)) {
+        e.preventDefault(); centerCamera();
       }
-
-      const key = e.code;
-      
-      setPressedKeys(prev => {
-        const newSet = new Set(prev);
-        newSet.add(key);
-        return newSet;
-      });
-      
-      // Controles instantâneos
-      if ((CONTROLS_KEYS.CENTER as readonly string[]).includes(key)) {
-        e.preventDefault();
-        centerCamera();
-      } else if ((CONTROLS_KEYS.RESET_ZOOM as readonly string[]).includes(key)) {
-        e.preventDefault();
-        resetZoom();
+      if ((CONTROLS_KEYS.RESET_ZOOM as readonly string[]).includes(e.code)) {
+        e.preventDefault(); resetZoom();
       }
     };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      // Ignorar se estiver digitando em um input/textarea
-      if (isInputElement(e.target)) {
-        return;
-      }
-      
-      const key = e.code;
-      setPressedKeys(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(key);
-        return newSet;
-      });
+    const onKeyUp = (e: globalThis.KeyboardEvent) => {
+      if (isInputField(e.target)) return;
+      keysRef.current.delete(e.code);
     };
 
-    // Sempre usar document como fallback para garantir captura
-    const targetElement = containerRef?.current || document;
-    
-    // Se há containerRef, configurar para receber eventos
+    const tgt: Document | HTMLElement = containerRef?.current ?? document;
+    tgt.addEventListener('keydown', onKeyDown as EventListener);
+    tgt.addEventListener('keyup', onKeyUp as EventListener);
+
+    /* Focus no container (se existir) */
     if (containerRef?.current) {
-      const container = containerRef.current;
-      container.setAttribute('tabindex', '0');
-      container.style.outline = 'none';
-      
-      // Tentar dar foco (sem forçar se já tiver)
-      if (document.activeElement !== container) {
-        container.focus();
-      }
-      
-      // Listeners no container específico
-      container.addEventListener('keydown', handleKeyDown);
-      container.addEventListener('keyup', handleKeyUp);
-    } else {
-      // Fallback para document
-      document.addEventListener('keydown', handleKeyDown);
-      document.addEventListener('keyup', handleKeyUp);
+      const el = containerRef.current;
+      el.tabIndex = 0;
+      el.style.outline = 'none';
+      el.focus({ preventScroll: true });
     }
 
+    /* ---------- loop ---------- */
+    let last = performance.now();
+    const loop = (now: number) => {
+      const dt = (now - last) / 16.666; /* ≈ frames */
+      last = now;
+
+      const keys = keysRef.current;
+      if (keys.size) {
+        const fast   = (CONTROLS_KEYS.SPEED_MODIFIER as readonly string[])
+                         .some(k => keys.has(k));
+        const speed  = (fast ? KEYBOARD_PAN_SPEED_FAST : KEYBOARD_PAN_SPEED) * dt;
+        const zoomSt = KEYBOARD_ZOOM_STEP * dt;
+
+        let dx = 0, dy = 0, dz = 0;
+        if ((CONTROLS_KEYS.PAN_LEFT  as readonly string[]).some(k => keys.has(k))) dx -= speed;
+        if ((CONTROLS_KEYS.PAN_RIGHT as readonly string[]).some(k => keys.has(k))) dx += speed;
+        if ((CONTROLS_KEYS.PAN_UP    as readonly string[]).some(k => keys.has(k))) dy -= speed;
+        if ((CONTROLS_KEYS.PAN_DOWN  as readonly string[]).some(k => keys.has(k))) dy += speed;
+        if ((CONTROLS_KEYS.ZOOM_IN   as readonly string[]).some(k => keys.has(k))) dz += zoomSt;
+        if ((CONTROLS_KEYS.ZOOM_OUT  as readonly string[]).some(k => keys.has(k))) dz -= zoomSt;
+
+        if (dx || dy) camera.pan(dx, dy);
+        if (dz)       camera.zoomBy(dz * 100);
+      }
+
+      rafKeyboardRef.current = requestAnimationFrame(loop);
+    };
+    rafKeyboardRef.current = requestAnimationFrame(loop);
+
+    /* cleanup */
     return () => {
-      if (containerRef?.current) {
-        containerRef.current.removeEventListener('keydown', handleKeyDown);
-        containerRef.current.removeEventListener('keyup', handleKeyUp);
-      } else {
-        document.removeEventListener('keydown', handleKeyDown);
-        document.removeEventListener('keyup', handleKeyUp);
+      tgt.removeEventListener('keydown', onKeyDown as EventListener);
+      tgt.removeEventListener('keyup', onKeyUp as EventListener);
+      if (rafKeyboardRef.current !== null) {
+        cancelAnimationFrame(rafKeyboardRef.current);
+        rafKeyboardRef.current = null;
       }
     };
-  }, [enableKeyboardControls, containerRef, centerCamera, resetZoom]);
+  }, [enableKeyboardControls, containerRef, centerCamera, resetZoom, camera]);
 
-  // === LOOP DE MOVIMENTO CONTÍNUO ===
-  useEffect(() => {
-    if (!enableKeyboardControls || pressedKeys.size === 0) {
-      if (keyboardLoopRef.current) {
-        cancelAnimationFrame(keyboardLoopRef.current);
-        keyboardLoopRef.current = undefined;
-      }
-      return;
-    }
-
-    const updateLoop = () => {
-      // Verificar se ainda há teclas pressionadas
-      if (pressedKeys.size === 0) {
-        keyboardLoopRef.current = undefined;
-        return;
-      }
-
-      const isSpeedModifierPressed = (CONTROLS_KEYS.SPEED_MODIFIER as readonly string[]).some(key => 
-        pressedKeys.has(key)
-      );
-      const panSpeed = isSpeedModifierPressed ? KEYBOARD_PAN_SPEED_FAST : KEYBOARD_PAN_SPEED;
-      
-      let dx = 0, dy = 0, zoomDelta = 0;
-
-      // Movimento
-      if ((CONTROLS_KEYS.PAN_LEFT as readonly string[]).some(key => pressedKeys.has(key))) {
-        dx -= panSpeed;
-      }
-      if ((CONTROLS_KEYS.PAN_RIGHT as readonly string[]).some(key => pressedKeys.has(key))) {
-        dx += panSpeed;
-      }
-      if ((CONTROLS_KEYS.PAN_UP as readonly string[]).some(key => pressedKeys.has(key))) {
-        dy -= panSpeed;
-      }
-      if ((CONTROLS_KEYS.PAN_DOWN as readonly string[]).some(key => pressedKeys.has(key))) {
-        dy += panSpeed;
-      }
-
-      // Zoom
-      if ((CONTROLS_KEYS.ZOOM_IN as readonly string[]).some(key => pressedKeys.has(key))) {
-        zoomDelta += KEYBOARD_ZOOM_STEP;
-      }
-      if ((CONTROLS_KEYS.ZOOM_OUT as readonly string[]).some(key => pressedKeys.has(key))) {
-        zoomDelta -= KEYBOARD_ZOOM_STEP;
-      }
-
-      // Aplicar movimentos
-      if (dx !== 0 || dy !== 0) {
-        cameraModel.pan(dx, dy);
-      }
-      if (zoomDelta !== 0) {
-        cameraModel.zoomBy(zoomDelta * 100);
-      }
-
-      keyboardLoopRef.current = requestAnimationFrame(updateLoop);
-    };
-
-    keyboardLoopRef.current = requestAnimationFrame(updateLoop);
-
-    return () => {
-      if (keyboardLoopRef.current) {
-        cancelAnimationFrame(keyboardLoopRef.current);
-        keyboardLoopRef.current = undefined;
-      }
-    };
-  }, [pressedKeys, enableKeyboardControls, cameraModel]);
-
-  // === LOOP DE AUTO-SEGUIMENTO ===
-  useEffect(() => {
-    if (!followTarget) {
-      if (followAnimationRef.current) {
-        cancelAnimationFrame(followAnimationRef.current);
-        followAnimationRef.current = undefined;
-      }
-      return;
-    }
-
-    const followLoop = () => {
-      if (!followTarget) {
-        followAnimationRef.current = undefined;
-        return;
-      }
-
-      const currentPos = cameraModel.getPosition();
-      const dx = (followTarget.x - currentPos.x) * AUTO_FOLLOW_SMOOTH_FACTOR;
-      const dy = (followTarget.y - currentPos.y) * AUTO_FOLLOW_SMOOTH_FACTOR;
-
-      if (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1) {
-        cameraModel.pan(dx, dy);
-      }
-
-      followAnimationRef.current = requestAnimationFrame(followLoop);
-    };
-
-    followAnimationRef.current = requestAnimationFrame(followLoop);
-
-    return () => {
-      if (followAnimationRef.current) {
-        cancelAnimationFrame(followAnimationRef.current);
-        followAnimationRef.current = undefined;
-      }
-    };
-  }, [followTarget, cameraModel]);
-
-  // === CLEANUP ===
-  useEffect(() => {
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-      if (followAnimationRef.current) {
-        cancelAnimationFrame(followAnimationRef.current);
-      }
-      if (keyboardLoopRef.current) {
-        cancelAnimationFrame(keyboardLoopRef.current);
-      }
-    };
+  /* =============================================================== */
+  /*  Limpeza global (unmount)                                        */
+  /* =============================================================== */
+  useEffect(() => () => {
+    if (rafTeleportRef.current !== null) cancelAnimationFrame(rafTeleportRef.current);
+    if (rafFollowRef.current   !== null) cancelAnimationFrame(rafFollowRef.current);
+    if (rafKeyboardRef.current !== null) cancelAnimationFrame(rafKeyboardRef.current);
   }, []);
 
+  /* =============================================================== */
+  /*  API exposto                                                     */
+  /* =============================================================== */
   return {
-    // Controles básicos
+    /* navegação básica */
     teleportTo,
     centerCamera,
     resetZoom,
-    
-    // Bookmarks
+
+    /* follow */
+    startFollowing,
+    stopFollowing,
+    isFollowing : followTarget !== null,
+    followTarget,
+
+    /* bookmarks */
     bookmarks,
     addBookmark,
     removeBookmark,
     goToBookmark,
-    
-    // Auto-seguimento
-    startFollowing,
-    stopFollowing,
-    isFollowing: followTarget !== null,
-    followTarget,
-    
-    // Estados
+
+    /* estado */
     isAnimating,
-    pressedKeys: Array.from(pressedKeys),
-    
-    // Utilities
-    getCurrentPosition: () => cameraModel.getPosition(),
-    getCurrentZoom: () => cameraModel.getZoom()
+    getCurrentPosition: () => camera.getPosition(),
+    getCurrentZoom   : () => camera.getZoom(),
   };
-} 
+}
