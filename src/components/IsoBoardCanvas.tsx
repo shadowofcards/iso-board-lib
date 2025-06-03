@@ -1,10 +1,11 @@
 /* src/components/IsoBoardCanvas.tsx */
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useState } from 'react';
 import Phaser from 'phaser';
 import IsoScene from './scenes/IsoScene';
 import IsoTileInventory from './IsoTileInventory';
 import CameraHandler from './CameraHandler';
 import PreviewOverlay from './PreviewOverlay';
+import TileInfoPopup from './TileInfoPopup';
 import { useBoardController } from '../hooks/useBoardController';
 import { useDragTile } from '../hooks/useDragTile';
 import type { TileData } from '../core/models/Tile';
@@ -22,12 +23,34 @@ export const IsoBoardCanvas: React.FC<IsoBoardCanvasProps> = ({
   const containerRef = useRef<HTMLDivElement>(null!);
   const phaserGameRef = useRef<Phaser.Game | null>(null);
 
+  // Estado para o popup de informações
+  const [tileInfoPopup, setTileInfoPopup] = useState<{
+    tile: TileData;
+    position: { x: number; y: number };
+  } | null>(null);
+
   const { boardManager, dragController, cameraModel } = useBoardController({
     width: boardWidth,
     height: boardHeight,
   });
 
   const { dragState, onDragStart, onDragMove, onDragEnd } = useDragTile();
+
+  // Previne o menu contextual padrão no container principal
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  // Handler para informações do tile
+  const handleTileInfo = useCallback((tile: TileData, position: { x: number; y: number }) => {
+    setTileInfoPopup({ tile, position });
+  }, []);
+
+  // Handler para fechar popup
+  const handleClosePopup = useCallback(() => {
+    setTileInfoPopup(null);
+  }, []);
 
   const convertToWorldCoords = useCallback((clientX: number, clientY: number) => {
     if (!phaserGameRef.current || !containerRef.current) {
@@ -114,6 +137,7 @@ export const IsoBoardCanvas: React.FC<IsoBoardCanvasProps> = ({
       dragController,
       cameraModel,
       onTileDragStart: handleBoardTileDragStart,
+      onTileInfo: handleTileInfo,
       onReadyCallback: () => {},
     });
 
@@ -141,14 +165,29 @@ export const IsoBoardCanvas: React.FC<IsoBoardCanvasProps> = ({
       game.destroy(true);
       phaserGameRef.current = null;
     };
-  }, [boardManager, boardWidth, boardHeight, cameraModel, dragController, handleBoardTileDragStart]);
+  }, [boardManager, boardWidth, boardHeight, cameraModel, dragController, handleBoardTileDragStart, handleTileInfo]);
 
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative', backgroundColor: '#023047', userSelect: 'none', WebkitUserSelect: 'none' }}>
+    <div 
+      style={{ 
+        width: '100%', 
+        height: '100%', 
+        position: 'relative', 
+        backgroundColor: '#023047', 
+        userSelect: 'none', 
+        WebkitUserSelect: 'none' 
+      }}
+      onContextMenu={handleContextMenu}
+    >
       <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }} />
       <IsoTileInventory tiles={AVAILABLE_TILES} onDragStart={handleInventoryDragStart} />
       <PreviewOverlay dragState={dragState} />
       <CameraHandler cameraModel={cameraModel} containerRef={containerRef} isDragActive={dragState.isDragging} />
+      <TileInfoPopup 
+        tile={tileInfoPopup?.tile || null}
+        position={tileInfoPopup?.position || null}
+        onClose={handleClosePopup}
+      />
     </div>
   );
 };

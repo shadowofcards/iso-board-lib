@@ -13,6 +13,7 @@ interface IsoSceneConfig {
   dragController: DragController;
   cameraModel: CameraModel;
   onTileDragStart?: (tile: TileData, boardX: number, boardY: number, e: { clientX: number; clientY: number }) => void;
+  onTileInfo?: (tile: TileData, position: { x: number; y: number }) => void;
   onReadyCallback: () => void;
 }
 
@@ -27,6 +28,7 @@ export default class IsoScene extends Phaser.Scene {
   private changeListener!: BoardChangeListener;
   private onReadyCallback!: () => void;
   private onTileDragStart?: (tile: TileData, boardX: number, boardY: number, e: { clientX: number; clientY: number }) => void;
+  private onTileInfo?: (tile: TileData, position: { x: number; y: number }) => void;
 
   constructor(config: IsoSceneConfig) {
     super({ key: 'IsoScene' });
@@ -36,6 +38,7 @@ export default class IsoScene extends Phaser.Scene {
     this.boardConfig = config.boardConfig;
     this.onReadyCallback = config.onReadyCallback;
     this.onTileDragStart = config.onTileDragStart;
+    this.onTileInfo = config.onTileInfo;
   }
 
   preload(): void {}
@@ -127,11 +130,40 @@ export default class IsoScene extends Phaser.Scene {
       const { worldX, worldY } = pointer;
       const clickedTile = this.findTileAtPosition(worldX, worldY);
 
-      if (clickedTile && this.onTileDragStart) {
-        const canvasRect = this.game.canvas.getBoundingClientRect();
-        const globalX = pointer.x + canvasRect.left;
-        const globalY = pointer.y + canvasRect.top;
-        this.onTileDragStart(clickedTile.tile, clickedTile.x, clickedTile.y, { clientX: globalX, clientY: globalY });
+      // Verifica qual botão foi clicado
+      if (pointer.rightButtonDown()) {
+        // Clique direito - mostra informações do tile
+        if (clickedTile && this.onTileInfo) {
+          const canvasRect = this.game.canvas.getBoundingClientRect();
+          const globalX = pointer.x + canvasRect.left;
+          const globalY = pointer.y + canvasRect.top;
+          
+          // Adiciona metadados ao tile para demonstração
+          const enrichedTile = {
+            ...clickedTile.tile,
+            metadata: {
+              label: `Tile ${clickedTile.tile.type}`,
+              description: `Tile localizado em (${clickedTile.x}, ${clickedTile.y})`,
+              properties: {
+                posicaoX: clickedTile.x,
+                posicaoY: clickedTile.y,
+                tipo: clickedTile.tile.type,
+                durabilidade: Math.floor(Math.random() * 100) + 1,
+                custo: Math.floor(Math.random() * 50) + 10
+              }
+            }
+          };
+          
+          this.onTileInfo(enrichedTile, { x: globalX, y: globalY });
+        }
+      } else if (pointer.leftButtonDown()) {
+        // Clique esquerdo - inicia drag do tile
+        if (clickedTile && this.onTileDragStart) {
+          const canvasRect = this.game.canvas.getBoundingClientRect();
+          const globalX = pointer.x + canvasRect.left;
+          const globalY = pointer.y + canvasRect.top;
+          this.onTileDragStart(clickedTile.tile, clickedTile.x, clickedTile.y, { clientX: globalX, clientY: globalY });
+        }
       }
     });
   }

@@ -1,4 +1,4 @@
-import { type Point, type Viewport, type BoardSize, clampCamera, applyZoom } from '../math/cameraMath';
+import { type Point, type Viewport, type BoardSize, clampCamera, freeCameraMovement, applyZoom } from '../math/cameraMath';
 
 /**
  * Classe que armazena estado da câmera (posição e zoom) e expõe
@@ -15,28 +15,32 @@ export class Camera {
   private zoom: number;
   private viewport: Viewport;
   private boardSizeInPx: BoardSize;
+  private freeNavigation: boolean; // Flag para navegação livre
 
   /**
    * @param initPos Posição inicial da câmera (x,y) em px.
    * @param initZoom Zoom inicial.
    * @param viewport Tamanho do viewport (aparência) em px.
    * @param boardSizeInPx Tamanho total do tabuleiro (em px).
+   * @param freeNavigation Se true, permite navegação livre sem limites.
    */
   constructor(
     initPos: Point,
     initZoom: number,
     viewport: Viewport,
-    boardSizeInPx: BoardSize
+    boardSizeInPx: BoardSize,
+    freeNavigation: boolean = true // Padrão é navegação livre
   ) {
     this.pos = { ...initPos };
     this.zoom = initZoom;
     this.viewport = { ...viewport };
     this.boardSizeInPx = { ...boardSizeInPx };
-    this.clamp(); // garante limites já no construtor
+    this.freeNavigation = freeNavigation;
+    this.clamp(); // garante limites já no construtor (se necessário)
   }
 
   /**
-   * Ajusta a posição (pan) somando dx, dy; depois aplica clamp.
+   * Ajusta a posição (pan) somando dx, dy; depois aplica clamp se necessário.
    */
   pan(dx: number, dy: number): void {
     this.pos = { x: this.pos.x + dx, y: this.pos.y + dy };
@@ -53,14 +57,21 @@ export class Camera {
 
   /**
    * Força a câmera a ficar dentro dos limites do tabuleiro (em px), usando cameraMath.clampCamera.
+   * Se freeNavigation estiver ativado, não aplica qualquer limite.
    */
   private clamp(): void {
-    const clamped = clampCamera(
-      this.pos,
-      this.viewport,
-      this.boardSizeInPx
-    );
-    this.pos = clamped;
+    if (this.freeNavigation) {
+      // Navegação livre - não aplica nenhum limite
+      this.pos = freeCameraMovement(this.pos);
+    } else {
+      // Navegação com limites tradicionais
+      const clamped = clampCamera(
+        this.pos,
+        this.viewport,
+        this.boardSizeInPx
+      );
+      this.pos = clamped;
+    }
   }
 
   /** Retorna posição atual. */
@@ -87,5 +98,20 @@ export class Camera {
   setBoardSize(boardSize: BoardSize): void {
     this.boardSizeInPx = { ...boardSize };
     this.clamp();
+  }
+
+  /**
+   * Ativa ou desativa a navegação livre.
+   */
+  setFreeNavigation(enabled: boolean): void {
+    this.freeNavigation = enabled;
+    this.clamp(); // Reaplica os limites com a nova configuração
+  }
+
+  /**
+   * Retorna se a navegação livre está ativada.
+   */
+  isFreeNavigationEnabled(): boolean {
+    return this.freeNavigation;
   }
 }

@@ -42,6 +42,14 @@ export function clampCamera(
 }
 
 /**
+ * Versão da câmera sem limites - permite navegação livre por qualquer parte do mundo.
+ * Retorna a posição exatamente como foi fornecida, sem qualquer clamp.
+ */
+export function freeCameraMovement(pos: Point): Point {
+  return { ...pos };
+}
+
+/**
  * Ajusta o valor de zoom de acordo com delta (por exemplo, wheelDelta ou pinch).
  * Apenas retorna novo scale; caps mínimo e máximo podem ser aplicados externamente.
  */

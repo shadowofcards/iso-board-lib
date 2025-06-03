@@ -8,6 +8,7 @@ export { IsoTileInventory } from './components/IsoTileInventory';
 export { PreviewOverlay } from './components/PreviewOverlay';
 export { CameraHandler } from './components/CameraHandler';
 export { TileInteractionLayer } from './components/TileInteractionLayer';
+export { TileInfoPopup } from './components/TileInfoPopup';
 
 export { BoardStateManager } from './core/engine/BoardStateManager';
 export { DragController, type DragState } from './core/engine/DragController';

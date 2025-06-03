@@ -35,7 +35,8 @@ export function useBoardController(boardConfig: { width: number; height: number 
         { x: 0, y: 0 },
         1.0,
         defaultViewport,
-        { width: boardWidthPx, height: boardHeightPx }
+        { width: boardWidthPx, height: boardHeightPx },
+        true // Ativa navegação livre por padrão
       );
     },
     [boardConfig.width, boardConfig.height]
