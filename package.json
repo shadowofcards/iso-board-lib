@@ -1,46 +1,42 @@
 {
   "name": "iso-board-lib",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
-  "main": "./dist/iso-board-lib.umd.js",
-  "module": "./dist/iso-board-lib.es.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/index.umd.js",
+  "module": "./dist/index.esm.js",
+  "types": "./dist/types/public.d.ts",
   "files": [
     "dist"
   ],
   "exports": {
     ".": {
-      "import": "./dist/iso-board-lib.es.js",
-      "require": "./dist/iso-board-lib.umd.js"
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.umd.js"
     }
   },
   "peerDependencies": {
-    "react": "^18 || ^19",
-    "react-dom": "^18 || ^19"
+    "phaser": "^3.90.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
   },
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "eslint .",
+    "clean": "rm -rf dist",
+    "build": "npm run clean && tsc --build && vite build",
+    "prepublishOnly": "npm run build",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build"
   },
   "devDependencies": {
-    "@eslint/js": "^9.25.0",
     "@storybook/addon-docs": "^9.0.4",
     "@storybook/addon-onboarding": "^9.0.4",
     "@storybook/react-vite": "^9.0.4",
     "@types/node": "^22.15.29",
     "@types/react": "^19.1.6",
     "@types/react-dom": "^19.1.5",
-    "@vitejs/plugin-react": "^4.4.1",
-    "eslint": "^9.25.0",
-    "eslint-plugin-react-hooks": "^5.2.0",
-    "eslint-plugin-react-refresh": "^0.4.19",
+    "@vitejs/plugin-react": "^4.5.1",
     "eslint-plugin-storybook": "^9.0.4",
     "storybook": "^9.0.4",
-    "typescript": "~5.8.3",
-    "typescript-eslint": "^8.30.1",
+    "typescript": "^5.8.3",
     "vite": "^6.3.5"
   }
 }

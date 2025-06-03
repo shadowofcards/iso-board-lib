@@ -1,134 +1,30 @@
-import type { TileData, TilePosition } from '../models/Tile';
-import type { BoardState } from '../models/Board';
+/**
+ * Funções auxiliares para trabalho com tiles: vizinhança, adjacência, etc.
+ */
 
 /**
- * Checks whether a given grid position is within the board’s bounds.
- *
- * @param state - The current board state, including size and tiles
- * @param position - The grid position to validate
- * @returns True if 0 ≤ row < rows and 0 ≤ col < cols; otherwise false
+ * Retorna as 4 posições vizinhas (N, S, L, O) do tile (x,y).
  */
-function isWithinBounds(
-  state: BoardState,
-  position: TilePosition
-): boolean {
-  return (
-    position.row >= 0 &&
-    position.col >= 0 &&
-    position.row < state.size.rows &&
-    position.col < state.size.cols
-  );
-}
-
-/**
- * Returns the TileData occupying exactly the specified grid position, or undefined if none.
- *
- * @param state - The board state, including all tiles and dimensions
- * @param position - The target grid position
- * @returns The TileData at that position, or undefined if out-of-bounds or empty
- */
-export function getTileAt(
-  state: BoardState,
-  position: TilePosition
-): TileData | undefined {
-  if (!isWithinBounds(state, position)) return undefined;
-  return state.tiles.find(
-    (tile) =>
-      tile.position.row === position.row &&
-      tile.position.col === position.col
-  );
-}
-
-/**
- * Determines if a new tile can be placed at the given position.
- * Conditions:
- *   1. The position must be within the board’s bounds.
- *   2. There must not already be a locked tile at that position.
- *
- * @param state - The board state, including all tiles and dimensions
- * @param position - The grid position to check
- * @returns True if placement is allowed; otherwise false
- */
-export function canPlaceTile(
-  state: BoardState,
-  position: TilePosition
-): boolean {
-  if (!isWithinBounds(state, position)) return false;
-  return !state.tiles.some(
-    (tile) =>
-      tile.position.row === position.row &&
-      tile.position.col === position.col &&
-      tile.locked
-  );
-}
-
-/**
- * Returns an array of all orthogonally adjacent tiles (up, down, left, right).
- *
- * @param state - The board state, including all tiles
- * @param position - The grid position whose neighbors to retrieve
- * @returns An array of TileData for each orthogonal neighbor (could be empty)
- */
-export function getOrthogonalNeighbors(
-  state: BoardState,
-  position: TilePosition
-): TileData[] {
-  const deltas = [
-    { row: -1, col: 0 },
-    { row: 1, col: 0 },
-    { row: 0, col: -1 },
-    { row: 0, col: 1 },
-  ];
-
-  return deltas
-    .map((delta) => ({
-      row: position.row + delta.row,
-      col: position.col + delta.col,
-    }))
-    .map((pos) => getTileAt(state, pos))
-    .filter((tile): tile is TileData => tile !== undefined);
-}
-
-/**
- * Returns an array of all diagonally adjacent tiles (4 diagonal directions).
- *
- * @param state - The board state, including all tiles
- * @param position - The grid position whose diagonal neighbors to retrieve
- * @returns An array of TileData for each diagonal neighbor (could be empty)
- */
-export function getDiagonalNeighbors(
-  state: BoardState,
-  position: TilePosition
-): TileData[] {
-  const deltas = [
-    { row: -1, col: -1 },
-    { row: -1, col: 1 },
-    { row: 1, col: -1 },
-    { row: 1, col: 1 },
-  ];
-
-  return deltas
-    .map((delta) => ({
-      row: position.row + delta.row,
-      col: position.col + delta.col,
-    }))
-    .map((pos) => getTileAt(state, pos))
-    .filter((tile): tile is TileData => tile !== undefined);
-}
-
-/**
- * Returns all tiles adjacent to a given position, both orthogonally and diagonally.
- *
- * @param state - The board state, including all tiles
- * @param position - The grid position whose surrounding tiles to retrieve
- * @returns An array of TileData for every neighboring tile (orthogonal + diagonal)
- */
-export function getSurroundingTiles(
-  state: BoardState,
-  position: TilePosition
-): TileData[] {
+export function getNeighbors(
+  tileX: number,
+  tileY: number
+): Array<{ x: number; y: number }> {
   return [
-    ...getOrthogonalNeighbors(state, position),
-    ...getDiagonalNeighbors(state, position),
+    { x: tileX, y: tileY - 1 }, // norte
+    { x: tileX + 1, y: tileY }, // leste
+    { x: tileX, y: tileY + 1 }, // sul
+    { x: tileX - 1, y: tileY }, // oeste
   ];
+}
+
+/**
+ * Retorna true se dois tiles (a e b) são adjacentes ortogonalmente.
+ */
+export function areTilesAdjacent(
+  a: { x: number; y: number },
+  b: { x: number; y: number }
+): boolean {
+  const dx = Math.abs(a.x - b.x);
+  const dy = Math.abs(a.y - b.y);
+  return (dx === 1 && dy === 0) || (dx === 0 && dy === 1);
 }

@@ -1,8 +1,18 @@
-export * from './components/IsoBoardCanvas';
-export * from './components/IsoTileInventory';
-export * from './components/IsoBoard';
+/**
+ * Pontos de entrada público da biblioteca.
+ * Exportamos apenas componentes React principais, hooks e tipos públicos.
+ */
 
-export type { TileData, TilePosition, TileSize, TileMetadata } from './core/models/Tile';
-export type { BoardState } from './core/models/Board';
-export type { CameraState } from './core/models/Camera';
-export type { ScreenPosition } from './core/math/isoCoordinate';
+export { IsoBoardCanvas } from './components/IsoBoardCanvas';
+export { IsoTileInventory } from './components/IsoTileInventory';
+export { PreviewOverlay } from './components/PreviewOverlay';
+export { CameraHandler } from './components/CameraHandler';
+export { TileInteractionLayer } from './components/TileInteractionLayer';
+
+export { BoardStateManager } from './core/engine/BoardStateManager';
+export { DragController, type DragState } from './core/engine/DragController';
+export { Camera as CameraModel } from './core/models/Camera';
+export type { TileData } from './core/models/Tile';
+
+export { useBoardController } from './hooks/useBoardController';
+export { useDragTile } from './hooks/useDragTile';

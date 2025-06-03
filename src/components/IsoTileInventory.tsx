@@ -1,53 +1,48 @@
 import React from 'react';
 import type { TileData } from '../core/models/Tile';
+import { TILE_SIZE, TILE_HEIGHT } from '../core/constants';
 
-interface Props {
-  /**
-   * Array of tile definitions available for placement.
-   * Each TileData includes id, type, image URL, etc.
-   */
-  availableTiles: TileData[];
-  /**
-   * Callback invoked when the user selects (clicks) a tile from the inventory.
-   * @param tile - The TileData object that was clicked
-   */
-  onSelect: (tile: TileData) => void;
+interface IsoTileInventoryProps {
+  tiles: TileData[];
+  onDragStart: (tile: TileData, e: React.MouseEvent<HTMLDivElement, MouseEvent>) => void;
 }
 
 /**
- * IsoTileInventory
- *
- * Displays a simple grid of available tiles (as 64×64 images).
- * When a tile is clicked, calls onSelect(tile) so the parent can
- * handle adding that tile to the board.
+ * Renderiza uma lista simples de “tiles” clicáveis/arrastáveis.
+ * Cada tile é um quadrado colorido que, ao clicar+arrastar, invoca onDragStart.
  */
-export const IsoTileInventory: React.FC<Props> = ({ availableTiles, onSelect }) => {
+export const IsoTileInventory: React.FC<IsoTileInventoryProps> = ({
+  tiles,
+  onDragStart,
+}) => {
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap' }}>
-      {availableTiles.map((tile) => (
+    <div
+      style={{
+        position: 'absolute',
+        bottom: 16,
+        left: 16,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        zIndex: 20,
+      }}
+    >
+      {tiles.map((tile) => (
         <div
           key={tile.id}
-          onClick={() => onSelect(tile)}
           style={{
-            margin: 4,
-            cursor: 'pointer',
-            /* 
-              A fixed size is used here so the inventory stays consistent.
-              Parent components may choose to override via CSS if desired.
-            */
+            width: TILE_SIZE / 2,
+            height: TILE_HEIGHT / 2,
+            backgroundColor: `#${tile.color.toString(16).padStart(6, '0')}`,
+            border: '2px solid #000',
+            borderRadius: 4,
+            cursor: 'grab',
           }}
-        >
-          <img
-            src={tile.image}
-            width={64}
-            height={64}
-            alt={tile.type}
-            /* 
-              alt text uses the tile.type, as it conveys the tile’s identity.
-            */
-          />
-        </div>
+          onMouseDown={(e) => onDragStart(tile, e)}
+        />
       ))}
     </div>
   );
 };
+
+export default IsoTileInventory;

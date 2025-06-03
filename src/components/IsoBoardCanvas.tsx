@@ -1,144 +1,263 @@
-import React, { useEffect, useRef, forwardRef } from 'react';
-import type { Ref } from 'react';
-import { gridToScreen } from '../core/math/isoCoordinate';
+import React, { useEffect, useRef, useCallback } from 'react';
+import Phaser from 'phaser';
+import IsoScene from './scenes/IsoScene';
+import IsoTileInventory from './IsoTileInventory';
+import CameraHandler from './CameraHandler';
+import PreviewOverlay from './PreviewOverlay';
+import { useBoardController } from '../hooks/useBoardController';
+import { useDragTile } from '../hooks/useDragTile';
 import type { TileData } from '../core/models/Tile';
+import { AVAILABLE_TILES } from '../core/constants';
 
-export interface IsoBoardCanvasProps {
-  /** Array of all tiles to render */
-  tiles: TileData[];
-  /** Tile dimensions in pixels */
-  tileSize: { width: number; height: number };
-  /** Camera offset in world coordinates (grid units) */
-  cameraOffset?: { x: number; y: number };
-  /** Camera zoom factor */
-  cameraZoom?: number;
-  /**
-   * Callback to draw a single tile.
-   * @param ctx - Canvas 2D rendering context
-   * @param tile - Tile to draw
-   * @param screenX - X coordinate on the canvas (world → screen)
-   * @param screenY - Y coordinate on the canvas
-   * @param zoom - Current zoom factor
+interface IsoBoardCanvasProps {
+  /** 
+   * Number of tiles horizontally on the board. 
+   * Determines the logical width (in tiles) for the board model.
    */
-  renderTile: (
-    ctx: CanvasRenderingContext2D,
-    tile: TileData,
-    screenX: number,
-    screenY: number,
-    zoom: number
-  ) => void;
-  /** Background color of the canvas */
-  backgroundColor?: string;
+  boardWidth: number;
+  
+  /** 
+   * Number of tiles vertically on the board.
+   * Determines the logical height (in tiles) for the board model.
+   */
+  boardHeight: number;
 }
 
 /**
- * IsoBoardCanvas renders an isometric board on a <canvas> element.
- *
- * - It exposes its <canvas> element via forwardRef, so that parent components
- *   (e.g. CameraHandler) can attach event listeners directly to it.
- * - All pan and zoom transformations are applied via the canvas context transform.
+ * IsoBoardCanvas - Componente principal que renderiza um tabuleiro isométrico
+ * usando Phaser.js para gráficos e React para UI.
  */
-export const IsoBoardCanvas = forwardRef(function IsoBoardCanvas(
-  {
-    tiles,
-    tileSize,
-    cameraOffset = { x: 0, y: 0 },
-    cameraZoom = 1,
-    renderTile,
-    backgroundColor = '#1a1a1a',
-  }: IsoBoardCanvasProps,
-  ref: Ref<HTMLCanvasElement>
-) {
-  const internalRef = useRef<HTMLCanvasElement | null>(null);
+export const IsoBoardCanvas: React.FC<IsoBoardCanvasProps> = ({
+  boardWidth,
+  boardHeight,
+}) => {
+  const containerRef = useRef<HTMLDivElement>(null!);
+  const phaserGameRef = useRef<Phaser.Game | null>(null);
 
-  // Link the external ref to our internal canvas ref
-  useEffect(() => {
-    if (typeof ref === 'function') {
-      ref(internalRef.current);
-    } else if (ref && 'current' in ref) {
-      (ref as React.MutableRefObject<HTMLCanvasElement | null>).current =
-        internalRef.current;
-    }
-  }, [ref]);
+  // Controladores do board, drag e câmera
+  const { boardManager, dragController, cameraModel } = useBoardController({
+    width: boardWidth,
+    height: boardHeight,
+  });
 
-  // Redraw on any dependency change
-  useEffect(() => {
-    const canvas = internalRef.current;
-    if (!canvas) return;
+  // Estado de drag do React (para preview)
+  const { dragState, onDragStart, onDragMove, onDragEnd } = useDragTile();
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Adjust canvas size to fill the window, then draw
-    const updateSize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-      draw();
-    };
-
-    // Draw all tiles with the current pan/zoom
-    const draw = () => {
-      // 1) Clear entire canvas without zoom transform
-      ctx.save();
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.restore();
-
-      // 2) Apply pan and zoom via context transform
-      ctx.setTransform(
-        cameraZoom,
-        0,
-        0,
-        cameraZoom,
-        -cameraOffset.x * cameraZoom,
-        -cameraOffset.y * cameraZoom
-      );
-
-      // 3) Fill background
-      ctx.fillStyle = backgroundColor;
-      ctx.fillRect(
-        0,
-        0,
-        canvas.width / cameraZoom,
-        canvas.height / cameraZoom
-      );
-
-      // 4) Render each tile at its computed screen position
-      for (const tile of tiles) {
-        const { x, y } = gridToScreen(
-          tile.position,
-          tileSize.width,
-          tileSize.height,
-          cameraOffset.x,
-          cameraOffset.y
-        );
-        renderTile(ctx, tile, x, y, cameraZoom);
+  // Handler para início do drag no inventário
+  const handleInventoryDragStart = useCallback(
+    (tile: TileData, e: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
+      // Previne seleção de texto
+      e.preventDefault();
+      
+      if (phaserGameRef.current) {
+        // Pega a câmera Phaser para converter coordenadas de tela para coordenadas de mundo
+        // Isso é necessário porque quando a câmera se move, as coordenadas mudam
+        const scene = phaserGameRef.current.scene.getScene('IsoScene') as any;
+        if (scene && scene.cameras) {
+          const cam = scene.cameras.main;
+          const rect = containerRef.current.getBoundingClientRect();
+          const screenX = e.clientX - rect.left;
+          const screenY = e.clientY - rect.top;
+          // Converte coordenadas de tela para coordenadas de mundo
+          const worldX = screenX + cam.scrollX;
+          const worldY = screenY + cam.scrollY;
+          
+          onDragStart(tile, { x: e.clientX, y: e.clientY }); // React preview usa coordenadas de tela
+          dragController.startDrag(tile, { x: worldX, y: worldY }); // Phaser usa coordenadas de mundo
+        } else {
+          // Fallback para coordenadas de tela normais
+          onDragStart(tile, { x: e.clientX, y: e.clientY });
+          dragController.startDrag(tile, { x: e.clientX, y: e.clientY });
+        }
+      } else {
+        // Fallback se o Phaser não estiver disponível
+        onDragStart(tile, { x: e.clientX, y: e.clientY });
+        dragController.startDrag(tile, { x: e.clientX, y: e.clientY });
       }
-    };
+    },
+    [dragController, onDragStart]
+  );
 
-    // Initial draw and size setup
-    updateSize();
-  }, [tiles, tileSize, cameraOffset, cameraZoom, renderTile, backgroundColor]);
+  // Handler para início do drag de tiles do board
+  const handleBoardTileDragStart = useCallback(
+    (tile: TileData, boardX: number, boardY: number, e: { clientX: number; clientY: number }) => {
+      // Remove o tile do board antes de iniciar o drag
+      boardManager.removeTile(boardX, boardY);
+      
+      if (phaserGameRef.current) {
+        const scene = phaserGameRef.current.scene.getScene('IsoScene') as any;
+        if (scene && scene.cameras) {
+          const cam = scene.cameras.main;
+          const rect = containerRef.current.getBoundingClientRect();
+          const screenX = e.clientX - rect.left;
+          const screenY = e.clientY - rect.top;
+          const worldX = screenX + cam.scrollX;
+          const worldY = screenY + cam.scrollY;
+          
+          onDragStart(tile, { x: e.clientX, y: e.clientY });
+          dragController.startDrag(tile, { x: worldX, y: worldY });
+        } else {
+          onDragStart(tile, { x: e.clientX, y: e.clientY });
+          dragController.startDrag(tile, { x: e.clientX, y: e.clientY });
+        }
+      } else {
+        onDragStart(tile, { x: e.clientX, y: e.clientY });
+        dragController.startDrag(tile, { x: e.clientX, y: e.clientY });
+      }
+    },
+    [boardManager, dragController, onDragStart]
+  );
 
-  // Handle window resize to adjust canvas dimensions
+  // Handler para movimento do mouse durante drag
+  const handleWindowMouseMove = useCallback(
+    (e: MouseEvent) => {
+      if (dragState.isDragging && phaserGameRef.current) {
+        // Previne seleção de texto durante drag
+        e.preventDefault();
+        
+        // Pega a câmera Phaser para converter coordenadas
+        const scene = phaserGameRef.current.scene.getScene('IsoScene') as any;
+        if (scene && scene.cameras) {
+          const cam = scene.cameras.main;
+          const rect = containerRef.current.getBoundingClientRect();
+          const screenX = e.clientX - rect.left;
+          const screenY = e.clientY - rect.top;
+          const worldX = screenX + cam.scrollX;
+          const worldY = screenY + cam.scrollY;
+          
+          onDragMove({ x: e.clientX, y: e.clientY }); // React preview usa coordenadas de tela 
+          dragController.updateDrag({ x: worldX, y: worldY }); // Phaser usa coordenadas de mundo
+        } else {
+          // Fallback para coordenadas de tela normais
+          onDragMove({ x: e.clientX, y: e.clientY });
+          dragController.updateDrag({ x: e.clientX, y: e.clientY });
+        }
+      }
+    },
+    [dragController, dragState.isDragging, onDragMove]
+  );
+
+  // Handler para fim do drag
+  const handleWindowMouseUp = useCallback(
+    (e: MouseEvent) => {
+      if (dragState.isDragging && phaserGameRef.current) {
+        // Pega a câmera Phaser para converter coordenadas
+        const scene = phaserGameRef.current.scene.getScene('IsoScene') as any;
+        if (scene && scene.cameras) {
+          const cam = scene.cameras.main;
+          const rect = containerRef.current.getBoundingClientRect();
+          const screenX = e.clientX - rect.left;
+          const screenY = e.clientY - rect.top;
+          const worldX = screenX + cam.scrollX;
+          const worldY = screenY + cam.scrollY;
+          
+          onDragEnd();
+          dragController.endDrag({ x: worldX, y: worldY });
+        } else {
+          // Fallback para coordenadas de tela normais
+          onDragEnd();
+          dragController.endDrag({ x: e.clientX, y: e.clientY });
+        }
+      }
+    },
+    [dragController, dragState.isDragging, onDragEnd]
+  );
+
+  // Effect para listeners globais de drag
   useEffect(() => {
-    const handleResize = () => {
-      const canvas = internalRef.current;
-      if (!canvas) return;
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    };
-    window.addEventListener('resize', handleResize);
+    if (dragState.isDragging) {
+      // Adiciona estilos para prevenir seleção de texto
+      document.body.style.userSelect = 'none';
+      document.body.style.webkitUserSelect = 'none';
+      
+      window.addEventListener('mousemove', handleWindowMouseMove);
+      window.addEventListener('mouseup', handleWindowMouseUp);
+    }
     return () => {
-      window.removeEventListener('resize', handleResize);
+      // Remove estilos de prevenção de seleção
+      document.body.style.userSelect = '';
+      document.body.style.webkitUserSelect = '';
+      
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
     };
-  }, []);
+  }, [dragState.isDragging, handleWindowMouseMove, handleWindowMouseUp]);
+
+  // Inicialização do Phaser
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    // Criar instância da cena isométrica
+    const isoScene = new IsoScene({
+      boardConfig: { width: boardWidth, height: boardHeight },
+      boardManager,
+      dragController,
+      cameraModel,
+      onTileDragStart: handleBoardTileDragStart, // Passa o handler para drag de tiles do board
+      onReadyCallback: () => {
+        // Scene está pronta
+      },
+    });
+
+    // Configuração do Phaser
+    const game = new Phaser.Game({
+      type: Phaser.AUTO,
+      parent: containerRef.current,
+      width: containerRef.current.clientWidth,
+      height: containerRef.current.clientHeight,
+      backgroundColor: '#023047',
+      scene: [isoScene],
+      scale: {
+        mode: Phaser.Scale.RESIZE,
+        autoCenter: Phaser.Scale.CENTER_BOTH,
+      },
+      render: {
+        pixelArt: true,
+        antialias: false,
+      },
+    });
+
+    phaserGameRef.current = game;
+
+    // Cleanup
+    return () => {
+      boardManager.clearBoard();
+      game.destroy(true);
+      phaserGameRef.current = null;
+    };
+  }, [boardManager, boardWidth, boardHeight, cameraModel, dragController, handleBoardTileDragStart]);
 
   return (
-    <canvas
-      ref={internalRef}
-      style={{ width: '100%', height: '100%', display: 'block' }}
-      onContextMenu={(e) => e.preventDefault()}
-    />
+    <div style={{ 
+      width: '100%', 
+      height: '100%', 
+      position: 'relative',
+      userSelect: 'none', // Previne seleção de texto no container principal
+      WebkitUserSelect: 'none'
+    }}>
+      {/* Container do Phaser */}
+      <div
+        ref={containerRef}
+        style={{ width: '100%', height: '100%', position: 'relative' }}
+      />
+
+      {/* Inventário de tiles */}
+      <IsoTileInventory
+        tiles={AVAILABLE_TILES}
+        onDragStart={handleInventoryDragStart}
+      />
+
+      {/* Preview de drag - Reabilitado para melhor experiência visual */}
+      <PreviewOverlay dragState={dragState} />
+
+      {/* Handler da câmera */}
+      <CameraHandler 
+        cameraModel={cameraModel} 
+        containerRef={containerRef}
+        isDragActive={dragState.isDragging} // Desabilita movimento da câmera durante drag
+      />
+    </div>
   );
-});
+};
+
+export default IsoBoardCanvas;

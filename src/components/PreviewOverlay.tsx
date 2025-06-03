@@ -1,67 +1,75 @@
 import React from 'react';
-import { gridToScreen } from '../core/math/isoCoordinate';
-import type { TileData, TilePosition } from '../core/models/Tile';
-
-interface Props {
-  /**
-   * If non-null, contains the tile being dragged and its current grid position.
-   * Used to render a semi-transparent preview image at that grid location.
-   */
-  preview: { tile: TileData; position: TilePosition } | null;
-  /** Size of each tile in pixels */
-  tileSize: { width: number; height: number };
-  /** Camera offset in world (grid) coordinates */
-  cameraOffset: { x: number; y: number };
-  /** Current camera zoom factor */
-  cameraZoom: number;
-}
+import type { DragState } from '../core/engine/DragController';
+import { TILE_SIZE, TILE_HEIGHT } from '../core/constants';
 
 /**
- * PreviewOverlay
- *
- * Renders a semi-transparent <img> at the preview tile’s screen position
- * while the user is dragging. The image is absolutely positioned on top
- * of the board, scaled by cameraZoom. Pointer events are disabled so it
- * never intercepts clicks.
+ * Overlay que renderiza um "ghost tile" flutuante baseado no estado de drag.
+ * Deve ser posicionado com coord. de tela fornecidas pelo DragController (através do hook).
  */
-export const PreviewOverlay: React.FC<Props> = ({
-  preview,
-  tileSize,
-  cameraOffset,
-  cameraZoom,
-}) => {
-  if (!preview) {
+interface PreviewOverlayProps {
+  dragState: DragState;
+}
+
+export const PreviewOverlay: React.FC<PreviewOverlayProps> = ({ dragState }) => {
+  if (!dragState.isDragging || !dragState.tile || !dragState.ghostPos) {
     return null;
   }
 
-  // Convert the preview’s grid position to screen coordinates (ignoring zoom).
-  const { x, y } = gridToScreen(
-    preview.position,
-    tileSize.width,
-    tileSize.height,
-    cameraOffset.x,
-    cameraOffset.y
-  );
-
-  // Apply zoom to the computed screen coordinates and dimensions
-  const scaledX = x * cameraZoom;
-  const scaledY = y * cameraZoom;
-  const scaledW = tileSize.width * cameraZoom;
-  const scaledH = tileSize.height * cameraZoom;
+  const { x, y } = dragState.ghostPos;
+  const hexColor = dragState.tile.color.toString(16).padStart(6, '0');
+  const label = dragState.tile.metadata?.label || dragState.tile.type;
 
   return (
-    <img
-      src={preview.tile.image}
-      alt="tile preview"
+    <div
       style={{
-        position: 'absolute',
-        left: scaledX,
-        top: scaledY,
-        opacity: 0.6,
-        width: scaledW,
-        height: scaledH,
+        position: 'fixed',
+        left: x - TILE_SIZE / 2,
+        top: y - TILE_HEIGHT / 2 - 10, // Offset para não ficar exatamente sob o mouse
         pointerEvents: 'none',
+        zIndex: 9999,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: '8px',
       }}
-    />
+    >
+      {/* Tile preview */}
+      <div
+        style={{
+          width: TILE_SIZE * 0.8, // Ligeiramente menor para feedback visual
+          height: TILE_HEIGHT * 0.8,
+          backgroundColor: `#${hexColor}`,
+          opacity: 0.8,
+          border: '2px solid white',
+          borderRadius: '4px',
+          boxShadow: '0 4px 8px rgba(0,0,0,0.3)',
+          clipPath: `polygon(
+            50% 0%, 
+            100% 50%, 
+            50% 100%, 
+            0% 50%
+          )`,
+          transform: 'rotate(3deg)',
+        }}
+      />
+      
+      {/* Label do tile */}
+      <div
+        style={{
+          backgroundColor: 'rgba(0,0,0,0.8)',
+          color: 'white',
+          padding: '4px 8px',
+          borderRadius: '4px',
+          fontSize: '12px',
+          fontWeight: 'bold',
+          whiteSpace: 'nowrap',
+          boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+        }}
+      >
+        {label}
+      </div>
+    </div>
   );
 };
+
+export default PreviewOverlay;

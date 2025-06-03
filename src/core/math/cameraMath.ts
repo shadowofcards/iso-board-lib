@@ -1,54 +1,54 @@
 /**
- * Camera
- *
- * Represents the current camera state:
- *  - offsetX, offsetY: translation in world (grid) units
- *  - zoom: scaling factor
+ * Funções puras para lidar com câmera: limites de panning, aplicação de zoom, etc.
  */
-export interface Camera {
-  offsetX: number;
-  offsetY: number;
-  zoom: number;
+
+export interface Point {
+  x: number;
+  y: number;
+}
+
+export interface Viewport {
+  width: number;
+  height: number;
+}
+
+export interface BoardSize {
+  width: number;
+  height: number;
 }
 
 /**
- * Applies a panning delta to the camera.
- *
- * @param camera - Current camera state
- * @param deltaX - Change in X (world units)
- * @param deltaY - Change in Y (world units)
- * @returns A new Camera object with updated offsetX/offsetY
+ * Garante que a câmera fique dentro dos limites do tabuleiro.
+ * Recebe a posição desejada (pos), o tamanho do viewport (largura e altura em px),
+ * e o tamanho total do tabuleiro (em px). Retorna nova posição (x,y) dentro dos limites.
  */
-export function applyPan(
-  camera: Camera,
-  deltaX: number,
-  deltaY: number
-): Camera {
-  return {
-    ...camera,
-    offsetX: camera.offsetX + deltaX,
-    offsetY: camera.offsetY + deltaY,
-  };
+export function clampCamera(
+  pos: Point,
+  viewport: Viewport,
+  boardSize: BoardSize
+): Point {
+  const halfW = viewport.width / 2;
+  const halfH = viewport.height / 2;
+
+  // limites para o centro da câmera
+  const minX = -halfW;
+  const maxX = boardSize.width - halfW;
+  const minY = -halfH;
+  const maxY = boardSize.height - halfH;
+
+  const clampedX = Math.max(minX, Math.min(pos.x, maxX));
+  const clampedY = Math.max(minY, Math.min(pos.y, maxY));
+  return { x: clampedX, y: clampedY };
 }
 
 /**
- * Applies a relative zoom change to the camera, clamped to [min, max].
- *
- * @param camera - Current camera state
- * @param deltaZoom - Amount to change the zoom by (e.g. 0.1 to zoom in 10%)
- * @param min - Minimum allowed zoom (default 0.5)
- * @param max - Maximum allowed zoom (default 2)
- * @returns A new Camera object with updated zoom (clamped)
+ * Ajusta o valor de zoom de acordo com delta (por exemplo, wheelDelta ou pinch).
+ * Apenas retorna novo scale; caps mínimo e máximo podem ser aplicados externamente.
  */
-export function applyZoom(
-  camera: Camera,
-  deltaZoom: number,
-  min = 0.5,
-  max = 2
-): Camera {
-  const newZoom = Math.max(min, Math.min(max, camera.zoom + deltaZoom));
-  return {
-    ...camera,
-    zoom: newZoom,
-  };
+export function applyZoom(currentZoom: number, delta: number): number {
+  // Suaviza o efeito: se delta positivo, aumenta; se negativo, diminui
+  const factor = 0.001; // sensibilidade
+  const newZoom = currentZoom + delta * factor;
+  // Limita entre 0.5x e 3x por padrão (pode-se ajustar)
+  return Math.max(0.5, Math.min(newZoom, 3));
 }

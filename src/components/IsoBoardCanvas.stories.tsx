@@ -1,35 +1,68 @@
-import type { Meta, StoryObj } from '@storybook/react';
-import { IsoBoardCanvas } from './IsoBoardCanvas';
-import type { TileData } from '../core/models/Tile';
+// IsoBoardCanvas.stories.tsx
 
-const sampleTile: TileData = {
-  id: 'sample-1',
-  type: 'grass',
-  image: '', // no image needed; drawing a solid color in renderTile
-  position: { row: 1, col: 1 },
-  size: { width: 64, height: 64 },
-};
+import Phaser from 'phaser';
+// Ensure every Scene instance has an EventEmitter so `scene.events.on(...)` won’t be undefined
+;(Phaser.Scene.prototype as any).events = new Phaser.Events.EventEmitter();
+
+import type { Meta, StoryObj } from '@storybook/react';
+import IsoBoardCanvas from './IsoBoardCanvas';
 
 const meta: Meta<typeof IsoBoardCanvas> = {
   title: 'Components/IsoBoardCanvas',
   component: IsoBoardCanvas,
-  tags: ['autodocs'],
+  parameters: {
+    layout: 'fullscreen',
+    docs: {
+      description: {
+        component:
+          'IsoBoardCanvas is a composite React component that initializes a Phaser game with an isometric scene, ' +
+          'renders a draggable tile inventory, shows a ghost preview during drag, and wires up camera controls. ' +
+          'Use the controls below to adjust the board dimensions (in tiles) and see how the isometric board resizes.',
+      },
+    },
+  },
+  argTypes: {
+    boardWidth: {
+      control: { type: 'number', min: 1, max: 20, step: 1 },
+      description: 'Number of tiles horizontally on the board.',
+    },
+    boardHeight: {
+      control: { type: 'number', min: 1, max: 20, step: 1 },
+      description: 'Number of tiles vertically on the board.',
+    },
+  },
 };
-
 export default meta;
+
 type Story = StoryObj<typeof IsoBoardCanvas>;
 
-export const SingleTile: Story = {
+export const Default: Story = {
   args: {
-    tiles: [sampleTile],
-    tileSize: { width: 64, height: 64 },
-    cameraOffset: { x: 0, y: 0 },
-    cameraZoom: 1,
-    backgroundColor: '#222222',
-    renderTile: (ctx, tile, x, y, _zoom) => {
-      // Draw a simple green square instead of an image
-      ctx.fillStyle = '#00cc00';
-      ctx.fillRect(x, y, tile.size.width, tile.size.height);
+    boardWidth: 10,
+    boardHeight: 10,
+  },
+  render: ({ boardWidth, boardHeight }) => (
+    <div
+      style={{
+        width: '100vw',
+        height: '100vh',
+        margin: 0,
+        padding: 0,
+        overflow: 'hidden',
+        position: 'relative',
+      }}
+    >
+      <IsoBoardCanvas boardWidth={boardWidth} boardHeight={boardHeight} />
+    </div>
+  ),
+  parameters: {
+    docs: {
+      description: {
+        story:
+          'In this story, IsoBoardCanvas renders a Phaser game area for an isometric board of the specified dimensions. ' +
+          'Use your mouse or touch to drag tiles from the inventory onto the board, and scroll or pinch to zoom/pan the camera. ' +
+          'Try changing the `boardWidth` and `boardHeight` controls to see different grid sizes.',
+      },
     },
   },
 };

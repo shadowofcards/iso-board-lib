@@ -1,77 +1,88 @@
+import { Board, type TileAtXY } from '../models/Board';
 import type { TileData } from '../models/Tile';
 
-interface BoardEvent {
-  /** Event type: "add", "remove", or "move" */
-  type: 'add' | 'remove' | 'move';
-  /**
-   * Payload for the event:
-   *  - "add": payload is a TileData to insert
-   *  - "remove": payload is an object with `id` of the tile to remove
-   *  - "move": payload is an object with `id` and `to: TilePosition`
-   */
-  payload: any;
-}
-
 /**
- * BoardStateManager
- *
- * Handles an in‐memory array of TileData and applies simple CRUD events:
- *  - "add": pushes a new tile
- *  - "remove": filters out a tile by id
- *  - "move": updates an existing tile’s position
- *
- * Provides:
- *  - getTiles(): returns a shallow copy of the current tile list
- *  - applyEvent(): mutates the internal tile array according to the event
+ * Gerencia o estado do tabuleiro e notifica listeners sempre que há mudança.
+ * Pode-se conectar lógica de rede (socket) ou validações mais complexas.
  */
+
+export type BoardChangeListener = (tiles: TileAtXY[]) => void;
+
 export class BoardStateManager {
-  private tiles: TileData[];
+  private board: Board;
+  private listeners: Set<BoardChangeListener>;
 
-  /**
-   * @param initialTiles - Optional array of TileData to seed the board state
-   */
-  constructor(initialTiles: TileData[] = []) {
-    // Clone the initial array so external changes don’t affect internal state
-    this.tiles = [...initialTiles];
+  constructor(width: number, height: number) {
+    this.board = new Board(width, height);
+    this.listeners = new Set();
   }
 
   /**
-   * Returns a shallow copy of the internal TileData array.
-   * @returns Array<TileData>
+   * Registra um listener para mudanças: sempre que houver placeTile ou removeTile,
+   * chamamos todos os listeners com a lista completa de tiles posicionados.
    */
-  getTiles(): TileData[] {
-    return [...this.tiles];
+  onChange(listener: BoardChangeListener): void {
+    this.listeners.add(listener);
+  }
+
+  offChange(listener: BoardChangeListener): void {
+    this.listeners.delete(listener);
   }
 
   /**
-   * Applies a board event to mutate the internal tiles list.
-   * Supports three event types:
-   *  - "add": payload is the new TileData to append
-   *  - "remove": payload should contain { id: string } to filter out
-   *  - "move": payload must contain { id: string, to: TilePosition }
-   *
-   * @param event - The board event to apply
+   * Coloca um tile em (x,y). Se sucesso, notifica listeners com lista atualizada.
    */
-  applyEvent(event: BoardEvent) {
-    switch (event.type) {
-      case 'add':
-        // Append the new tile
-        this.tiles.push(event.payload);
-        break;
-
-      case 'remove':
-        // Remove any tile whose id matches payload.id
-        this.tiles = this.tiles.filter((t) => t.id !== event.payload.id);
-        break;
-
-      case 'move':
-        // Map through tiles, updating the matching tile’s position
-        this.tiles = this.tiles.map((t) =>
-          t.id === event.payload.id
-            ? { ...t, position: event.payload.to }
-            : t
-        );
-        break;
+  placeTile(x: number, y: number, tile: TileData): boolean {
+    const success = this.board.addTile(x, y, tile);
+    if (success) {
+      this.emitChange();
     }
+    return success;
+  }
+
+  /**
+   * Remove um tile em (x,y). Se existia e foi removido, notifica listeners.
+   */
+  removeTile(x: number, y: number): boolean {
+    const success = this.board.removeTile(x, y);
+    if (success) {
+      this.emitChange();
+    }
+    return success;
+  }
+
+  /**
+   * Retorna o estado imutável atual do board (lista de TileAtXY).
+   */
+  getState(): TileAtXY[] {
+    return this.board.getAllTiles();
+  }
+
+  /**
+   * Notifica todos listeners com o array completo de TileAtXY.
+   */
+  private emitChange(): void {
+    const snapshot = this.getState();
+    for (const listener of this.listeners) {
+      listener(snapshot);
+    }
+  }
+
+  /**
+   * Limpa o board por completo e notifica listeners.
+   */
+  clearBoard(): void {
+    this.board.clear();
+    this.emitChange();
+  }
+
+  /**
+   * Retorna largura e altura do tabuleiro (em tiles).
+   */
+  getWidth(): number {
+    return this.board.getWidth();
+  }
+  getHeight(): number {
+    return this.board.getHeight();
   }
 }

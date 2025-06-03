@@ -1,0 +1,1886 @@
+--------------------------------------------------------------------
+BEGIN: src/index.ts
+--------------------------------------------------------------------
+/**
+ * Pontos de entrada público da biblioteca.
+ * Exportamos apenas componentes React principais, hooks e tipos públicos.
+ */
+
+export { IsoBoardCanvas } from './components/IsoBoardCanvas';
+export { IsoTileInventory } from './components/IsoTileInventory';
+export { PreviewOverlay } from './components/PreviewOverlay';
+export { CameraHandler } from './components/CameraHandler';
+export { TileInteractionLayer } from './components/TileInteractionLayer';
+
+export { BoardStateManager } from './core/engine/BoardStateManager';
+export { DragController, type DragState } from './core/engine/DragController';
+export { Camera as CameraModel } from './core/models/Camera';
+export type { TileData } from './core/models/Tile';
+
+export { useBoardController } from './hooks/useBoardController';
+export { useDragTile } from './hooks/useDragTile';
+--------------------------------------------------------------------
+END: src/index.ts
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+BEGIN: src/hooks/useDragTile.ts
+--------------------------------------------------------------------
+import { useState, useCallback } from 'react';
+import type { TileData } from '../core/models/Tile';
+import type { DragState } from '../core/engine/DragController';
+
+/**
+ * Hook leve para manter estado de drag/inventário no React
+ * Antes de delegar ao Phaser, apenas atualiza estado de drag local (ghostPos, etc).
+ */
+export function useDragTile() {
+  const [dragState, setDragState] = useState<DragState>({
+    isDragging: false,
+    tile: null,
+    ghostPos: null,
+  });
+
+  const onDragStart = useCallback(
+    (tile: TileData, startPos: { x: number; y: number }) => {
+      setDragState({
+        isDragging: true,
+        tile,
+        ghostPos: { ...startPos },
+      });
+    },
+    []
+  );
+
+  const onDragMove = useCallback((pos: { x: number; y: number }) => {
+    setDragState((prev) => {
+      if (!prev.isDragging) return prev;
+      return {
+        ...prev,
+        ghostPos: { ...pos },
+      };
+    });
+  }, []);
+
+  const onDragEnd = useCallback(() => {
+    setDragState({
+      isDragging: false,
+      tile: null,
+      ghostPos: null,
+    });
+  }, []);
+
+  return {
+    dragState,
+    onDragStart,
+    onDragMove,
+    onDragEnd,
+  };
+}
+--------------------------------------------------------------------
+END: src/hooks/useDragTile.ts
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+BEGIN: src/hooks/useBoardController.ts
+--------------------------------------------------------------------
+import { useMemo } from 'react';
+import { BoardStateManager } from '../core/engine/BoardStateManager';
+import { DragController } from '../core/engine/DragController';
+import { Camera } from '../core/models/Camera';
+
+/**
+ * Hook que cria e expõe instâncias de BoardStateManager, DragController e Camera.
+ * 
+ * - boardConfig: dimensões do tabuleiro em número de tiles.
+ * 
+ * Retorna:
+ * - boardManager: gerencia o estado lógico do board.
+ * - dragController: gerencia a lógica de arraste.
+ * - cameraModel: gerencia posição e zoom da câmera.
+ */
+export function useBoardController(boardConfig: { width: number; height: number }) {
+  // 1) Cria o BoardStateManager e mantêm a instância imutável via useMemo
+  const boardManager = useMemo(
+    () => new BoardStateManager(boardConfig.width, boardConfig.height),
+    [boardConfig.width, boardConfig.height]
+  );
+
+  // 2) Cria a Camera model em px com tamanho do board em px
+  //    Cada tile em projeção isométrica ocupa, em largura, aproximadamente TILE_SIZE px
+  const boardWidthPx = boardConfig.width * 128;  // 128 é TILE_SIZE
+  const boardHeightPx = boardConfig.height * 64; // 64 é TILE_HEIGHT
+
+  const cameraModel = useMemo(
+    () =>
+      new Camera(
+        { x: 0, y: 0 },
+        1.0,
+        { width: window.innerWidth, height: window.innerHeight },
+        { width: boardWidthPx, height: boardHeightPx }
+      ),
+    [boardWidthPx, boardHeightPx]
+  );
+
+  // 3) Cria o DragController
+  const dragController = useMemo(
+    () => new DragController(boardManager, cameraModel),
+    [boardManager, cameraModel]
+  );
+
+  // 4) Retorno das instâncias
+  return {
+    boardManager,
+    dragController,
+    cameraModel,
+  };
+}
+--------------------------------------------------------------------
+END: src/hooks/useBoardController.ts
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+BEGIN: src/components/IsoBoardCanvas.tsx
+--------------------------------------------------------------------
+import React, { useEffect, useRef, useCallback } from 'react';
+import Phaser from 'phaser';
+import IsoScene from './scenes/IsoScene';
+import LoadingScene from './scenes/LoadingScene';
+import TileInteractionLayer from './TileInteractionLayer';
+import IsoTileInventory from './IsoTileInventory';
+import PreviewOverlay from './PreviewOverlay';
+import CameraHandler from './CameraHandler';
+import { useBoardController } from '../hooks/useBoardController';
+import { useDragTile } from '../hooks/useDragTile';
+import type { TileData } from '../core/models/Tile';
+import { AVAILABLE_TILES } from '../core/constants';
+
+interface IsoBoardCanvasProps {
+  /** 
+   * Number of tiles horizontally on the board. 
+   * Determines the logical width (in tiles) for the board model.
+   */
+  boardWidth: number;
+  
+  /** 
+   * Number of tiles vertically on the board.
+   * Determines the logical height (in tiles) for the board model.
+   */
+  boardHeight: number;
+}
+
+/**
+ * IsoBoardCanvas
+ *
+ * A top-level React component that:
+ *   1. Initializes a Phaser game instance with an isometric scene (IsoScene) and a loading scene (LoadingScene).
+ *   2. Provides React‐level UI over that game: a draggable tile inventory, a “ghost” overlay during drag, and a camera input handler.
+ *   3. Manages drag & drop state via custom hooks, forwarding events into Phaser’s DragController.
+ *   4. Injects board and camera controllers into the Phaser scene so that the game can render and respond to tile placements.
+ *
+ * Key Behaviors:
+ * - When the user drags a tile from the inventory, we update both React state (for the “ghost” preview) and the Phaser DragController (so Phaser can snap/place the tile).
+ * - When the board model (BoardStateManager) changes (tile placed/removed), IsoScene redraws the isometric board via Phaser Graphics.
+ * - CameraHandler listens to wheel/pan/pinch events on the Phaser container to zoom/pan the Phaser camera.
+ *
+ * @param boardWidth  Logical width of the board (in number of tiles).
+ * @param boardHeight Logical height of the board (in number of tiles).
+ */
+export const IsoBoardCanvas: React.FC<IsoBoardCanvasProps> = ({
+  boardWidth,
+  boardHeight,
+}) => {
+  /**
+   * ref to the HTML <div> that will host the Phaser canvas.
+   * We assert non-null (null!) because we know React will set it after first render.
+   */
+  const containerRef = useRef<HTMLDivElement>(null!);
+
+  /**
+   * ref to hold the Phaser.Game instance, so we can clean it up on unmount.
+   * We initialize as null until Phaser.Game is created in useEffect.
+   */
+  const phaserGameRef = useRef<Phaser.Game | null>(null);
+
+  // ------------------------------------------------------------------------
+  // 1) Create core controllers via custom hooks:
+  //
+  // useBoardController returns:
+  //   - boardManager: manages tile placement/removal logic (BoardStateManager).
+  //   - dragController: handles drag workflow (DragController).
+  //   - cameraModel: manages camera position/zoom (CameraModel).
+  // 
+  // We pass boardWidth/boardHeight so the board model knows its dimensions (in tiles).
+  // ------------------------------------------------------------------------
+  const { boardManager, dragController, cameraModel } = useBoardController({
+    width: boardWidth,
+    height: boardHeight,
+  });
+
+  // ------------------------------------------------------------------------
+  // useDragTile returns:
+  //   - dragState: React state containing { isDragging, tile, ghostPos }.
+  //   - onDragStart, onDragMove, onDragEnd: functions to update dragState.
+  //
+  // We keep drag preview (ghost) entirely in React state to render PreviewOverlay.
+  // ------------------------------------------------------------------------
+  const { dragState, onDragStart, onDragMove, onDragEnd } = useDragTile();
+
+  // ------------------------------------------------------------------------
+  // 2) Handler: when user presses and drags a tile in the React inventory,
+  //    we must both update React state (onDragStart) AND notify Phaser’s DragController
+  //    so that the Phaser scene can render/position the ghost and execute drop logic.
+  //
+  // Dependencies:
+  //   - dragController: to call startDrag
+  //   - onDragStart: to update React dragState
+  // We wrap in useCallback to avoid creating a new function each render.
+  // ------------------------------------------------------------------------
+  const handleInventoryDragStart = useCallback(
+    (tile: TileData, e: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
+      // 2a) React-level: show the “ghost” tile at the mouse position
+      onDragStart(tile, { x: e.clientX, y: e.clientY });
+
+      // 2b) Phaser-level: begin drag inside DragController
+      dragController.startDrag(tile, { x: e.clientX, y: e.clientY });
+    },
+    [dragController, onDragStart]
+  );
+
+  // ------------------------------------------------------------------------
+  // 3a) Handler: while dragging, on each mousemove we:
+  //     - Update React state (onDragMove) so PreviewOverlay moves
+  //     - Update Phaser DragController (updateDrag) so IsoScene can draw ghost inside Phaser if needed
+  //
+  // We only do so if dragState.isDragging is true.
+  // ------------------------------------------------------------------------
+  const handleWindowMouseMove = useCallback(
+    (e: MouseEvent) => {
+      if (dragState.isDragging) {
+        // Update React ghost position
+        onDragMove({ x: e.clientX, y: e.clientY });
+        // Update Phaser ghost position
+        dragController.updateDrag({ x: e.clientX, y: e.clientY });
+      }
+    },
+    [dragController, dragState.isDragging, onDragMove]
+  );
+
+  // ------------------------------------------------------------------------
+  // 3b) Handler: when the user releases the mouse button (mouseup),
+  //     attempt to “drop” the tile:
+  //       - React: call onDragEnd to clear React ghost state
+  //       - Phaser: call dragController.endDrag to try placing tile on board
+  //         (BoardStateManager will notify IsoScene to redraw if placement succeeded).
+  //
+  // Only execute if currently dragging.
+  // ------------------------------------------------------------------------
+  const handleWindowMouseUp = useCallback(
+    (e: MouseEvent) => {
+      if (dragState.isDragging) {
+        // Clear React drag state
+        onDragEnd();
+        // Attempt drop inside Phaser; Phaser’s BoardStateManager will emit change if placed.
+        dragController.endDrag({ x: e.clientX, y: e.clientY });
+      }
+    },
+    [dragController, dragState.isDragging, onDragEnd]
+  );
+
+  // ------------------------------------------------------------------------
+  // 3c) Effect: add/remove global mousemove/mouseup listeners depending on dragState.
+  //     - When dragState.isDragging === true, we attach listeners to window.
+  //     - When it becomes false, cleanup removes them.
+  //
+  // This ensures we continue to receive pointer events even if cursor leaves the container.
+  // ------------------------------------------------------------------------
+  useEffect(() => {
+    if (dragState.isDragging) {
+      window.addEventListener('mousemove', handleWindowMouseMove);
+      window.addEventListener('mouseup', handleWindowMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
+    };
+  }, [dragState.isDragging, handleWindowMouseMove, handleWindowMouseUp]);
+
+  // ------------------------------------------------------------------------
+  // 4) Callback invoked when IsoScene is fully initialized.
+  //     Currently no extra logic needed, but placeholder allows future sync.
+  // ------------------------------------------------------------------------
+  const handleSceneReady = useCallback(() => {
+    // Placeholder: if we needed to send initial board config or sync time, do it here.
+  }, []);
+
+  // ------------------------------------------------------------------------
+  // 5) Initialize Phaser.Game when component mounts or when critical dependencies change:
+  //     - containerRef.current must exist (the div that will host Phaser canvas).
+  //     - boardManager, boardWidth, boardHeight, cameraModel, dragController are injected into the scene.
+  //
+  // Scenes:
+  //   - LoadingScene: displays “Loading…” message, then emits “ready”.
+  //   - IsoScene: main isometric board scene, receives controllers and board config.
+  //
+  // Phaser config details:
+  //   - type: Phaser.AUTO → let Phaser choose WebGL or Canvas automatically.
+  //   - parent: attach Phaser canvas to containerRef.current <div>.
+  //   - width/height: match container’s client dimensions.
+  //   - backgroundColor: dark teal (#023047).
+  //   - scale: RESIZE mode so canvas resizes with container; autoCenter CENTER_BOTH to center content.
+  //   - render: pixelArt/antialias=false for crisp isometric pixels.
+  //
+  // Cleanup:
+  //   - On unmount, clear the board (boardManager.clearBoard) and destroy Phaser game instance.
+  // ------------------------------------------------------------------------
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    // Instantiate scenes with injected controllers and callbacks
+    const isoScene = new IsoScene({
+      boardConfig: { width: boardWidth, height: boardHeight },
+      boardManager,
+      dragController,
+      cameraModel,
+      onReadyCallback: handleSceneReady,
+    });
+    const loadingScene = new LoadingScene();
+
+    // Create Phaser.Game instance
+    const game = new Phaser.Game({
+      type: Phaser.AUTO,
+      parent: containerRef.current,
+      width: containerRef.current.clientWidth,
+      height: containerRef.current.clientHeight,
+      backgroundColor: '#023047',
+      scene: [loadingScene, isoScene],
+      scale: {
+        mode: Phaser.Scale.RESIZE,
+        autoCenter: Phaser.Scale.CENTER_BOTH,
+      },
+      render: {
+        pixelArt: true,
+        antialias: false,
+      },
+    });
+
+    // Store game in ref for potential future access/cleanup
+    phaserGameRef.current = game;
+
+    // Cleanup function: clear board state and destroy Phaser game
+    return () => {
+      boardManager.clearBoard();
+      game.destroy(true);
+    };
+    // Dependencies: recreate game if any controller or board dimensions change
+  }, [
+    boardManager,
+    boardWidth,
+    boardHeight,
+    cameraModel,
+    dragController,
+    handleSceneReady,
+  ]);
+
+  // ------------------------------------------------------------------------
+  // Render:
+  //   - A wrapper <div> that fills its parent (100%×100%), positioned relative.
+  //   - Inside:
+  //       1) A full‐size <div ref={containerRef}> for Phaser to mount its canvas.
+  //       2) <IsoTileInventory> at bottom-left (inventory of draggable tiles).
+  //       3) <PreviewOverlay> to render React‐level ghost tile during drag.
+  //       4) <CameraHandler> attaches pan/zoom listeners to the Phaser container.
+  //       5) <TileInteractionLayer> covers the entire area to optionally capture clicks on empty board area.
+  // ------------------------------------------------------------------------
+  return (
+    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+      {/* Container for Phaser canvas (fills entire area) */}
+      <div
+        ref={containerRef}
+        style={{ width: '100%', height: '100%', position: 'relative' }}
+      />
+
+      {/*
+        Inventory of available tiles rendered as small colored squares in the bottom-left.
+        onDragStart is called when the user mouses down on a tile: triggers handleInventoryDragStart.
+      */}
+      <IsoTileInventory
+        tiles={AVAILABLE_TILES}
+        onDragStart={handleInventoryDragStart}
+      />
+
+      {/*
+        PreviewOverlay renders a “ghost” tile at dragState.ghostPos
+        when dragState.isDragging is true. Uses dragState.tile.color for appearance.
+      */}
+      <PreviewOverlay dragState={dragState} />
+
+      {/*
+        CameraHandler listens to wheel/mousedown/touch on the Phaser container
+        (containerRef) to update cameraModel for panning and zooming.
+      */}
+      <CameraHandler cameraModel={cameraModel} containerRef={containerRef} />
+
+      {/*
+        TileInteractionLayer: a transparent overlay that captures pointerDown events
+        on the board area. For this example, calling onPointerDown starts a drag of a “dummy” tile.
+        In a real app, you’d convert the click to a tile coordinate and perhaps show context menus.
+      */}
+      <TileInteractionLayer
+        onPointerDown={(tile: TileData) => {
+          // Example: start dragging a dummy tile at (0,0) if user taps/clicks empty space
+          onDragStart(tile, { x: 0, y: 0 });
+          dragController.startDrag(tile, { x: 0, y: 0 });
+        }}
+      />
+    </div>
+  );
+};
+
+export default IsoBoardCanvas;
+--------------------------------------------------------------------
+END: src/components/IsoBoardCanvas.tsx
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+BEGIN: src/components/TileInteractionLayer.tsx
+--------------------------------------------------------------------
+import React from 'react';
+import type { TileData } from '../core/models/Tile';
+
+/**
+ * Camada invisível que cobre todo o canvas e intercepta eventos de toque/clique
+ * sobre tiles específicos. Para simplificar, esta camada chama onPointerDown
+ * com um tile "dummy" sempre que o usuário clica. Em cenários reais, você capturaria
+ * a coordenada de clique e converteria para (tileX, tileY) para recuperar TileData.
+ */
+interface TileInteractionLayerProps {
+  onPointerDown: (tile: TileData) => void;
+}
+
+export const TileInteractionLayer: React.FC<TileInteractionLayerProps> = ({
+  onPointerDown,
+}) => {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 10,
+        background: 'transparent',
+      }}
+      onMouseDown={() => {
+        onPointerDown({
+          id: 'dummy',
+          type: 'dummy',
+          color: 0xffffff,
+        });
+      }}
+    />
+  );
+};
+
+export default TileInteractionLayer;
+--------------------------------------------------------------------
+END: src/components/TileInteractionLayer.tsx
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+BEGIN: src/components/IsoBoardCanvas.stories.tsx
+--------------------------------------------------------------------
+// src/components/IsoBoardCanvas.stories.tsx
+
+import React from 'react';
+import type { Meta, StoryObj } from '@storybook/react';
+import IsoBoardCanvas from './IsoBoardCanvas';
+
+const meta: Meta<typeof IsoBoardCanvas> = {
+  title: 'Components/IsoBoardCanvas',
+  component: IsoBoardCanvas,
+  parameters: {
+    layout: 'fullscreen',
+    docs: {
+      description: {
+        component:
+          'IsoBoardCanvas is a composite React component that initializes a Phaser game with an isometric scene, ' +
+          'renders a draggable tile inventory, shows a ghost preview during drag, and wires up camera controls. ' +
+          'Use the controls below to adjust the board dimensions (in tiles) and see how the isometric board resizes.',
+      },
+    },
+  },
+  argTypes: {
+    boardWidth: {
+      control: { type: 'number', min: 1, max: 20, step: 1 },
+      defaultValue: 8,
+      description: 'Number of tiles horizontally on the board.',
+    },
+    boardHeight: {
+      control: { type: 'number', min: 1, max: 20, step: 1 },
+      defaultValue: 6,
+      description: 'Number of tiles vertically on the board.',
+    },
+  },
+};
+export default meta;
+
+type Story = StoryObj<typeof IsoBoardCanvas>;
+
+/**
+ * Default story for IsoBoardCanvas.
+ *
+ * Args:
+ *   - boardWidth: number of columns (tiles)
+ *   - boardHeight: number of rows (tiles)
+ *
+ * This story renders IsoBoardCanvas full‐screen. The Phaser instance, inventory, and overlays
+ * will occupy the entire available area. Adjust boardWidth/boardHeight in Controls to
+ * change the grid dimensions.
+ */
+export const Default: Story = {
+  args: {
+    boardWidth: 80,
+    boardHeight: 60,
+  },
+  render: ({ boardWidth, boardHeight }) => {
+    return (
+      <div
+        style={{
+          width: '100vw',
+          height: '100vh',
+          margin: 0,
+          padding: 0,
+          overflow: 'hidden',
+          position: 'relative',
+        }}
+      >
+        {/*
+          IsoBoardCanvas:
+          - Initializes Phaser with IsoScene and LoadingScene.
+          - Renders inventory of AVAILABLE_TILES.
+          - Shows PreviewOverlay when dragging a tile.
+          - Attaches CameraHandler to allow pan/zoom on the Phaser container.
+          - TileInteractionLayer covers full area to optionally capture clicks.
+        */}
+        <IsoBoardCanvas boardWidth={boardWidth} boardHeight={boardHeight} />
+      </div>
+    );
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          'In this story, IsoBoardCanvas renders a ' +
+          'Phaser game area for an isometric board of the specified dimensions. ' +
+          'Use your mouse or touch to drag tiles from the inventory onto the board, ' +
+          'and scroll or pinch to zoom/pan the camera. ' +
+          'Try changing the `boardWidth` and `boardHeight` controls to see different grid sizes.',
+      },
+    },
+  },
+};
+--------------------------------------------------------------------
+END: src/components/IsoBoardCanvas.stories.tsx
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+BEGIN: src/components/PreviewOverlay.tsx
+--------------------------------------------------------------------
+import React from 'react';
+import type { DragState } from '../core/engine/DragController';
+import { TILE_SIZE, TILE_HEIGHT } from '../core/constants';
+
+/**
+ * Overlay que renderiza um “ghost tile” flutuante baseado no estado de drag.
+ * Deve ser posicionado com coord. de tela fornecidas pelo DragController (através do hook).
+ */
+interface PreviewOverlayProps {
+  dragState: DragState;
+}
+
+export const PreviewOverlay: React.FC<PreviewOverlayProps> = ({ dragState }) => {
+  if (!dragState.isDragging || !dragState.tile || !dragState.ghostPos) {
+    return null;
+  }
+
+  const { x, y } = dragState.ghostPos;
+  const hexColor = dragState.tile.color.toString(16).padStart(6, '0');
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        left: x - TILE_SIZE / 2,
+        top: y - TILE_HEIGHT / 2,
+        width: TILE_SIZE,
+        height: TILE_HEIGHT,
+        backgroundColor: `#${hexColor}`,
+        opacity: 0.5,
+        pointerEvents: 'none',
+        transform: 'rotate(5deg)',
+        zIndex: 9999,
+        clipPath: `polygon(
+          50% 0%, 
+          100% 50%, 
+          50% 100%, 
+          0% 50%
+        )`,
+      }}
+    />
+  );
+};
+
+export default PreviewOverlay;
+--------------------------------------------------------------------
+END: src/components/PreviewOverlay.tsx
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+BEGIN: src/components/scenes/LoadingScene.ts
+--------------------------------------------------------------------
+import Phaser from 'phaser';
+
+/**
+ * Cena de carregamento simples. Pode ser expandida para exibir barra de progresso, etc.
+ * Por enquanto, só exibe um texto “Carregando…” e então emite evento “ready” para o
+ * IsoBoardCanvas iniciar a próxima cena.
+ */
+export default class LoadingScene extends Phaser.Scene {
+  constructor() {
+    super({ key: 'LoadingScene' });
+  }
+
+  preload(): void {
+    const { width, height } = this.scale;
+    this.add
+      .text(width / 2, height / 2, 'Carregando…', { fontSize: '24px', color: '#ffffff' })
+      .setOrigin(0.5);
+
+    // Para simular delay (500ms) e disparar evento 'ready'
+    this.time.delayedCall(500, () => {
+      this.events.emit('ready');
+    });
+  }
+
+  create(): void {
+    // Nada além do preload simulado
+  }
+}
+--------------------------------------------------------------------
+END: src/components/scenes/LoadingScene.ts
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+BEGIN: src/components/scenes/IsoScene.ts
+--------------------------------------------------------------------
+import Phaser from 'phaser';
+import { BoardStateManager, type BoardChangeListener } from '../../core/engine/BoardStateManager';
+import { DragController, type DragState } from '../../core/engine/DragController';
+import { Camera as CameraModel } from '../../core/models/Camera';
+import { toScreenPos } from '../../core/math/isoCoordinate';
+import { TILE_SIZE, TILE_HEIGHT } from '../../core/constants';
+import type { TileData } from '../../core/models/Tile';
+
+interface IsoSceneConfig {
+  boardConfig: { width: number; height: number };
+  boardManager: BoardStateManager;
+  dragController: DragController;
+  cameraModel: CameraModel;
+  onReadyCallback: () => void;
+}
+
+/**
+ * Cena principal do Phaser que desenha o tabuleiro isométrico,
+ * responde a eventos de arraste, atualiza estado do board e da câmera.
+ */
+export default class IsoScene extends Phaser.Scene {
+  private boardManager!: BoardStateManager;
+  private dragController!: DragController;
+  private cameraModel!: CameraModel;
+  private graphics!: Phaser.GameObjects.Graphics;
+  private changeListener!: BoardChangeListener;
+  private onReadyCallback!: () => void;
+
+  constructor(config: IsoSceneConfig) {
+    super({ key: 'IsoScene' });
+    this.boardManager = config.boardManager;
+    this.dragController = config.dragController;
+    this.cameraModel = config.cameraModel;
+    this.onReadyCallback = config.onReadyCallback;
+  }
+
+  preload(): void {
+    // Não há assets externos nesse exemplo
+  }
+
+  create(): void {
+    // Cria um Graphics para desenhar formas (diamantes dos tiles)
+    this.graphics = this.add.graphics();
+
+    // Configura listener de mudança do Board
+    this.changeListener = (tiles) => {
+      this.redrawBoard(tiles);
+    };
+    this.boardManager.onChange(this.changeListener);
+
+    // Desenha o board inicial (vazio)
+    this.redrawBoard(this.boardManager.getState());
+
+    // Notifica que a cena está pronta para receber configs externas
+    this.onReadyCallback();
+
+    // Input handlers para drag & drop
+    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      // Atualiza estado de drag no controller (muda ghostPos)
+      if (this.dragController.getState().isDragging) {
+        this.dragController.updateDrag({ x: pointer.x, y: pointer.y });
+      }
+    });
+
+    this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+      // Tenta finalizar o drag e colocar tile no board
+      const state: DragState = this.dragController.getState();
+      if (state.isDragging && state.tile) {
+        const success = this.dragController.endDrag({ x: pointer.x, y: pointer.y });
+        // Se dropou, a BoardStateManager já notificará a redrawBoard
+        if (!success) {
+          // Poderíamos exibir feedback de inválido aqui
+        }
+      }
+    });
+  }
+
+  update(_: number, __: number): void {
+    // Sincroniza a câmera Phaser com os valores do cameraModel
+    const cam = this.cameras.main;
+    const camPos = this.cameraModel.getPosition();
+    cam.setScroll(camPos.x, camPos.y);
+    cam.setZoom(this.cameraModel.getZoom());
+
+    // Desenha o ghost tile, caso exista drag ativo (sem limpar o board)
+    this.redrawGhost();
+  }
+
+  /**
+   * Desenha todo o tabuleiro: para cada tile em boardManager, plota um diamante colorido na posição isométrica.
+   */
+  private redrawBoard(tiles: Array<{ x: number; y: number; tile: TileData }>): void {
+    this.graphics.clear();
+
+    for (const { x: tx, y: ty, tile } of tiles) {
+      const { x: screenX, y: screenY } = toScreenPos(tx, ty, TILE_SIZE, TILE_HEIGHT);
+      const worldX = screenX + this.cameras.main.centerX;
+      const worldY = screenY + this.cameras.main.centerY;
+
+      // Desenhar diamante preenchido
+      this.graphics.fillStyle(tile.color, 1.0);
+      this.graphics.beginPath();
+      this.graphics.moveTo(worldX, worldY - TILE_HEIGHT / 2);
+      this.graphics.lineTo(worldX + TILE_SIZE / 2, worldY);
+      this.graphics.lineTo(worldX, worldY + TILE_HEIGHT / 2);
+      this.graphics.lineTo(worldX - TILE_SIZE / 2, worldY);
+      this.graphics.closePath();
+      this.graphics.fillPath();
+
+      // Borda preta
+      this.graphics.lineStyle(2, 0x000000, 1.0);
+      this.graphics.strokePath();
+    }
+  }
+
+  /**
+   * Desenha o “ghost” do tile que está sendo arrastado, com opacidade reduzida, sem limpar o board.
+   */
+  private redrawGhost(): void {
+    const state: DragState = this.dragController.getState();
+    if (state.isDragging && state.tile && state.ghostPos) {
+      const ghost = state.ghostPos;
+
+      this.graphics.fillStyle(state.tile.color, 0.5);
+      this.graphics.beginPath();
+      this.graphics.moveTo(ghost.x, ghost.y - TILE_HEIGHT / 2);
+      this.graphics.lineTo(ghost.x + TILE_SIZE / 2, ghost.y);
+      this.graphics.lineTo(ghost.x, ghost.y + TILE_HEIGHT / 2);
+      this.graphics.lineTo(ghost.x - TILE_SIZE / 2, ghost.y);
+      this.graphics.closePath();
+      this.graphics.fillPath();
+
+      this.graphics.lineStyle(1, 0x000000, 0.8);
+      this.graphics.strokePath();
+    }
+  }
+
+  shutdown(): void {
+    // Desinscrever listener do boardManager para evitar leaks
+    this.boardManager.offChange(this.changeListener);
+  }
+}
+--------------------------------------------------------------------
+END: src/components/scenes/IsoScene.ts
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+BEGIN: src/components/CameraHandler.stories.tsx
+--------------------------------------------------------------------
+import React, { useRef } from 'react';
+import type { Meta, StoryObj } from '@storybook/react';
+import CameraHandler from './CameraHandler';
+import { Camera } from '../core/models/Camera';
+
+/**
+ * Story metadata for CameraHandler.
+ *
+ * - title: The path under which this component appears in the Storybook sidebar.
+ * - component: The actual React component being documented.
+ * - parameters.layout: 'fullscreen' ensures the story occupies the entire Storybook viewport,
+ *                     which is helpful for components that rely on container dimensions.
+ */
+const meta: Meta<typeof CameraHandler> = {
+  title: 'Components/CameraHandler',
+  component: CameraHandler,
+  parameters: {
+    layout: 'fullscreen',
+  },
+};
+export default meta;
+
+/**
+ * Story type for CameraHandler, inferred from the component's props.
+ * StoryObj<CameraHandler> allows us to specify custom rendering or args.
+ */
+type Story = StoryObj<typeof CameraHandler>;
+
+/**
+ * Default story: demonstrates CameraHandler in a simple container.
+ *
+ * - We create a <div> of fixed size (400×300px) to simulate a game viewport.
+ * - A CameraModel instance is created with initial position (0,0), zoom=1,
+ *   viewport size matching the <div>, and a larger board size (800×600) for panning.
+ * - CameraHandler attaches event listeners (wheel, mouse drag, touch gestures)
+ *   to that <div>, enabling interactive pan/zoom on the CameraModel.
+ */
+export const Default: Story = {
+  render: () => {
+    // ------------------------------------------------------------------------
+    // Step 1: Create a ref to the <div> that will be the interactive viewport.
+    // 
+    // We use `useRef<HTMLDivElement>(null!)` because:
+    // - We know this ref will be assigned to a DOM element after the first render.
+    // - The `!` (non-null assertion) silences TypeScript's “possibly null” warning,
+    //   since Storybook always renders the container before CameraHandler mounts.
+    // ------------------------------------------------------------------------
+    const containerRef = useRef<HTMLDivElement>(null!);
+
+    // ------------------------------------------------------------------------
+    // Step 2: Instantiate a CameraModel.
+    //
+    // Camera constructor parameters:
+    //   initPos: { x: 0, y: 0 } → Starting camera position (world coordinates).
+    //   initZoom: 1 → Starting zoom level (1×).
+    //   viewport: { width: 400, height: 300 } → The size (in pixels) of the visible area.
+    //   boardSize: { width: 800, height: 600 } → The total “world” size (in pixels),
+    //       which defines the boundaries for panning and zooming clamping.
+    //
+    // In this example:
+    //   - The “board” is twice as wide and twice as tall as the visible area,
+    //     so the camera can pan within that 800×600 world.
+    // ------------------------------------------------------------------------
+    const cameraModel = new Camera(
+      { x: 0, y: 0 },            // initial camera position
+      1,                         // initial zoom (1×)
+      { width: 400, height: 300 }, // viewport size in pixels
+      { width: 800, height: 600 }  // total board/world size in pixels
+    );
+
+    // ------------------------------------------------------------------------
+    // Step 3: Render the JSX structure:
+    //
+    //   <div ref={containerRef} style={...}>
+    //     <p>Instructions for the user</p>
+    //     <CameraHandler ... />
+    //   </div>
+    //
+    // - The outer <div> must:
+    //     • Have a ref attached (containerRef), so CameraHandler can register listeners.
+    //     • Be positioned and sized in CSS, so events like “wheel” and “mousedown”
+    //       fire only when the pointer is over that <div>.
+    //   • We give it a visible border (1px solid #333) to see its boundaries in Storybook.
+    //   • We set `overflow: hidden` so panning won’t show scrollbars.
+    //   • `position: relative` ensures any absolute children (like instructions text)
+    //     are positioned correctly within that container.
+    // ------------------------------------------------------------------------
+    return (
+      <div
+        ref={containerRef}
+        style={{
+          border: '1px solid #333',
+          width: '400px',
+          height: '300px',
+          overflow: 'hidden',
+          position: 'relative',
+        }}
+      >
+        {/*
+          Instructional text:
+          - Positioned absolutely within the container to remain visible.
+          - `zIndex: 10` ensures it sits above any other content.
+          */}
+        <p style={{ position: 'absolute', top: 8, left: 8, zIndex: 10 }}>
+          Scroll (wheel) to zoom; click-and-drag to pan.
+        </p>
+
+        {/*
+          CameraHandler:
+          - Receives the CameraModel instance and containerRef.
+          - Attaches event listeners (wheel/mousedown/touch) to containerRef.current.
+          - On interactions, updates cameraModel (pan/zoom).
+          - Renders nothing itself (returns null), solely for side effects.
+        */}
+        <CameraHandler cameraModel={cameraModel} containerRef={containerRef} />
+      </div>
+    );
+  },
+};
+--------------------------------------------------------------------
+END: src/components/CameraHandler.stories.tsx
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+BEGIN: src/components/CameraHandler.tsx
+--------------------------------------------------------------------
+import React, { useEffect } from 'react';
+import { Camera as CameraModel } from '../core/models/Camera';
+
+/**
+ * Props for the CameraHandler component.
+ *
+ * @property cameraModel  - An instance of CameraModel that manages the camera’s position and zoom state.
+ * @property containerRef - A React ref pointing to the HTML <div> that acts as the camera’s interactive viewport.
+ */
+interface CameraHandlerProps {
+  cameraModel: CameraModel;
+  containerRef: React.RefObject<HTMLDivElement>;
+}
+
+/**
+ * CameraHandler
+ *
+ * A React component that attaches mouse and touch event listeners to a specified container element,
+ * translating wheel, drag, and pinch gestures into camera zoom and pan operations on the provided
+ * CameraModel instance. This component does not render any visible DOM of its own; it exists purely
+ * for side effects (attaching and cleaning up event listeners).
+ *
+ * Usage:
+ * 1. Instantiate a CameraModel with initial position, zoom, viewport size, and world size.
+ * 2. Render <CameraHandler cameraModel={...} containerRef={someRef} /> inside a component that
+ *    provides a <div ref={someRef}>...</div> of the desired dimensions.
+ * 3. CameraHandler will listen for:
+ *    - Wheel events on the container to zoom the camera.
+ *    - Mouse down/move/up on the container and window to pan the camera.
+ *    - Touch start/move/end on the container for two-finger pinch-zoom and one-finger pan.
+ *
+ * @param cameraModel  The CameraModel instance to drive (must implement .pan(dx, dy) and .zoomBy(delta)).
+ * @param containerRef A React ref to an HTML <div> that will receive pointer and wheel events.
+ */
+export const CameraHandler: React.FC<CameraHandlerProps> = ({
+  cameraModel,
+  containerRef,
+}) => {
+  useEffect(() => {
+    // Retrieve the actual DOM element from the ref.
+    const el = containerRef.current;
+    // If ref is not yet attached or element is missing, do nothing.
+    if (!el) return;
+
+    // ------------------------------------------------------------
+    // Internal state variables for tracking panning and last pointer
+    // ------------------------------------------------------------
+    let isPanning = false; // Whether the user is currently dragging to pan
+    let lastX = 0;         // Last X-coordinate of pointer (mouse or touch)
+    let lastY = 0;         // Last Y-coordinate of pointer (mouse or touch)
+
+    // ------------------------------------------------------------
+    // Wheel handler: zoom the camera based on wheel delta.
+    // Prevents default scrolling behavior.
+    // ------------------------------------------------------------
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      // Negative deltaY inverts typical scroll direction for zoom
+      cameraModel.zoomBy(-e.deltaY);
+    };
+
+    // ------------------------------------------------------------
+    // Mouse down handler: begin panning. Record initial pointer position.
+    // ------------------------------------------------------------
+    const onMouseDown = (e: MouseEvent) => {
+      isPanning = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+    };
+
+    // ------------------------------------------------------------
+    // Mouse move handler: if panning, compute delta and pan camera.
+    // ------------------------------------------------------------
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isPanning) return;
+      // Compute how far pointer moved since last frame
+      const dx = lastX - e.clientX;
+      const dy = lastY - e.clientY;
+      cameraModel.pan(dx, dy);
+      // Update last-known coordinates
+      lastX = e.clientX;
+      lastY = e.clientY;
+    };
+
+    // ------------------------------------------------------------
+    // Mouse up handler: end panning mode.
+    // ------------------------------------------------------------
+    const onMouseUp = () => {
+      isPanning = false;
+    };
+
+    // ------------------------------------------------------------
+    // Resize handler: update cameraModel’s viewport to match element’s new size.
+    // Necessary so camera’s clamping logic uses the correct dimensions.
+    // ------------------------------------------------------------
+    const onResize = () => {
+      if (el) {
+        cameraModel.setViewport({
+          width: el.clientWidth,
+          height: el.clientHeight,
+        });
+      }
+    };
+
+    // ------------------------------------------------------------
+    // Register mouse-based event listeners:
+    // - wheel on the container element
+    // - mousedown on the container element
+    // - mousemove on the window (so panning continues even if pointer leaves container)
+    // - mouseup on the window
+    // - resize on the window
+    // ------------------------------------------------------------
+    el.addEventListener('wheel', onWheel, { passive: false });
+    el.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('resize', onResize);
+
+    // ------------------------------------------------------------
+    // Variables for tracking pinch-zoom gesture (two-finger on touch).
+    // ------------------------------------------------------------
+    let initialDist = 0;
+
+    // ------------------------------------------------------------
+    // Touch start handler:
+    // - If two fingers detected: compute initial distance for pinch zoom.
+    // - If one finger: begin panning (similar to onMouseDown).
+    // ------------------------------------------------------------
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        // Two-finger pinch: calculate initial distance
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        initialDist = Math.hypot(dx, dy);
+      } else if (e.touches.length === 1) {
+        // Single-finger: begin panning
+        isPanning = true;
+        lastX = e.touches[0].clientX;
+        lastY = e.touches[0].clientY;
+      }
+    };
+
+    // ------------------------------------------------------------
+    // Touch move handler:
+    // - If two fingers and existing initialDist: compute new distance, derive zoom delta, call zoomBy.
+    // - If single finger and in panning mode: compute pan delta, call pan.
+    // ------------------------------------------------------------
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && initialDist > 0) {
+        // Pinch zoom logic
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const newDist = Math.hypot(dx, dy);
+        const deltaDist = newDist - initialDist;
+        cameraModel.zoomBy(deltaDist);
+      } else if (e.touches.length === 1 && isPanning) {
+        // Single-finger pan logic
+        const dx = lastX - e.touches[0].clientX;
+        const dy = lastY - e.touches[0].clientY;
+        cameraModel.pan(dx, dy);
+        lastX = e.touches[0].clientX;
+        lastY = e.touches[0].clientY;
+      }
+    };
+
+    // ------------------------------------------------------------
+    // Touch end handler:
+    // - If fewer than two fingers remain, reset initialDist.
+    // - If no fingers remain, end panning.
+    // ------------------------------------------------------------
+    const onTouchEnd = (_e: TouchEvent) => {
+      if (_e.touches.length < 2) {
+        initialDist = 0;
+      }
+      if (_e.touches.length === 0) {
+        isPanning = false;
+      }
+    };
+
+    // ------------------------------------------------------------
+    // Register touch-based event listeners on the container element:
+    // - touchstart, touchmove, touchend
+    // ------------------------------------------------------------
+    el.addEventListener('touchstart', onTouchStart, { passive: false });
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    el.addEventListener('touchend', onTouchEnd);
+
+    // ------------------------------------------------------------
+    // Cleanup function: remove all event listeners when component unmounts
+    // or when dependencies (cameraModel or containerRef) change.
+    // ------------------------------------------------------------
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      el.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('resize', onResize);
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+      el.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [cameraModel, containerRef]);
+
+  // This component does not render any visible JSX;
+  // it exists solely to manage side effects (event listeners).
+  return null;
+};
+
+export default CameraHandler;
+--------------------------------------------------------------------
+END: src/components/CameraHandler.tsx
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+BEGIN: src/components/IsoTileInventory.tsx
+--------------------------------------------------------------------
+import React from 'react';
+import type { TileData } from '../core/models/Tile';
+import { TILE_SIZE, TILE_HEIGHT } from '../core/constants';
+
+interface IsoTileInventoryProps {
+  tiles: TileData[];
+  onDragStart: (tile: TileData, e: React.MouseEvent<HTMLDivElement, MouseEvent>) => void;
+}
+
+/**
+ * Renderiza uma lista simples de “tiles” clicáveis/arrastáveis.
+ * Cada tile é um quadrado colorido que, ao clicar+arrastar, invoca onDragStart.
+ */
+export const IsoTileInventory: React.FC<IsoTileInventoryProps> = ({
+  tiles,
+  onDragStart,
+}) => {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        bottom: 16,
+        left: 16,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        zIndex: 20,
+      }}
+    >
+      {tiles.map((tile) => (
+        <div
+          key={tile.id}
+          style={{
+            width: TILE_SIZE / 2,
+            height: TILE_HEIGHT / 2,
+            backgroundColor: `#${tile.color.toString(16).padStart(6, '0')}`,
+            border: '2px solid #000',
+            borderRadius: 4,
+            cursor: 'grab',
+          }}
+          onMouseDown={(e) => onDragStart(tile, e)}
+        />
+      ))}
+    </div>
+  );
+};
+
+export default IsoTileInventory;
+--------------------------------------------------------------------
+END: src/components/IsoTileInventory.tsx
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+BEGIN: src/core/constants.ts
+--------------------------------------------------------------------
+/**
+ * Constantes básicas de dimensões e lista de tiles disponíveis.
+ */
+
+import type { TileData } from './models/Tile';
+
+export const TILE_SIZE = 128;
+export const TILE_HEIGHT = 64;
+
+/**
+ * Tiles disponíveis por padrão. Cada tile tem id, tipo, cor (hex) e metadados opcionais.
+ */
+export const AVAILABLE_TILES: TileData[] = [
+  {
+    id: '1',
+    type: 'grass',
+    color: 0x8ecae6,
+    metadata: {
+      label: 'Grama',
+      dark: 0x3a86a8,
+      light: 0xbde0fe,
+    },
+  },
+  {
+    id: '2',
+    type: 'sand',
+    color: 0xffb703,
+    metadata: {
+      label: 'Areia',
+      dark: 0xc97a00,
+      light: 0xffe066,
+    },
+  },
+  {
+    id: '3',
+    type: 'tree',
+    color: 0x43a047,
+    metadata: {
+      label: 'Árvore',
+      dark: 0x2d6a4f,
+      light: 0x74c69d,
+    },
+  },
+];
+
+/**
+ * Converte número inteiro de cor (0xRRGGBB) para string hexadecimal de 6 dígitos,
+ * sem o prefixo '#', útil em CSS inline.
+ */
+export function formatHex(color: number): string {
+  const hex = color.toString(16).padStart(6, '0');
+  return hex;
+}
+--------------------------------------------------------------------
+END: src/core/constants.ts
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+BEGIN: src/core/models/Tile.ts
+--------------------------------------------------------------------
+/**
+ * Interface pura para representar os metadados de um tile no tabuleiro.
+ * 
+ * - id: string único (pode ser UUID ou simples “1”, “2”).
+ * - type: nome do tipo de tile (por ex., “grass”).
+ * - color: número (0xRRGGBB) para cor principal de exibição.
+ * - metadata: campos extras (ex.: label, cores clara/escura, etc).
+ */
+
+export interface TileData {
+  id: string;
+  type: string;
+  color: number;
+  metadata?: Record<string, any>;
+}
+--------------------------------------------------------------------
+END: src/core/models/Tile.ts
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+BEGIN: src/core/models/Board.ts
+--------------------------------------------------------------------
+import type { TileData } from './Tile';
+
+/**
+ * Representa o tabuleiro de forma genérica: mantém uma matriz interna ou map
+ * que associa coordenadas (x,y) a um TileData.
+ * 
+ * Esta classe NÃO se preocupa com renderização nem Phaser – apenas regras de domínio.
+ */
+
+export interface TileAtXY {
+  x: number;
+  y: number;
+  tile: TileData;
+}
+
+export class Board {
+  private width: number;
+  private height: number;
+  // Representação interna: Map de “x,y” → TileData
+  private grid: Map<string, TileData>;
+
+  constructor(width: number, height: number) {
+    this.width = width;
+    this.height = height;
+    this.grid = new Map();
+  }
+
+  /**
+   * Gera a chave interna “x,y” para o Map.
+   */
+  private static key(x: number, y: number): string {
+    return `${x},${y}`;
+  }
+
+  /**
+   * Retorna true se (x,y) está dentro dos limites do tabuleiro (0 <= x < width, 0 <= y < height).
+   */
+  isInside(x: number, y: number): boolean {
+    return x >= 0 && x < this.width && y >= 0 && y < this.height;
+  }
+
+  /**
+   * Adiciona (ou substitui) um tile em (x,y). Retorna false se coordenada inválida.
+   */
+  addTile(x: number, y: number, tile: TileData): boolean {
+    if (!this.isInside(x, y)) return false;
+    const k = Board.key(x, y);
+    this.grid.set(k, tile);
+    return true;
+  }
+
+  /**
+   * Remove o tile em (x,y). Retorna true se existia e foi removido; false caso contrário.
+   */
+  removeTile(x: number, y: number): boolean {
+    if (!this.isInside(x, y)) return false;
+    const k = Board.key(x, y);
+    return this.grid.delete(k);
+  }
+
+  /**
+   * Retorna o tile em (x,y) ou undefined se estiver vazio ou fora.
+   */
+  getTile(x: number, y: number): TileData | undefined {
+    if (!this.isInside(x, y)) return undefined;
+    return this.grid.get(Board.key(x, y));
+  }
+
+  /**
+   * Retorna uma lista de todos tiles posicionados no board, no formato {x, y, tile}.
+   */
+  getAllTiles(): TileAtXY[] {
+    const result: TileAtXY[] = [];
+    for (const [key, tile] of this.grid.entries()) {
+      const [xs, ys] = key.split(',').map((n) => parseInt(n, 10));
+      result.push({ x: xs, y: ys, tile });
+    }
+    return result;
+  }
+
+  /**
+   * Retorna o tamanho do tabuleiro (em tiles).
+   */
+  getWidth(): number {
+    return this.width;
+  }
+  getHeight(): number {
+    return this.height;
+  }
+
+  /**
+   * Limpa todo o tabuleiro.
+   */
+  clear(): void {
+    this.grid.clear();
+  }
+}
+--------------------------------------------------------------------
+END: src/core/models/Board.ts
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+BEGIN: src/core/models/Camera.ts
+--------------------------------------------------------------------
+import { type Point, type Viewport, type BoardSize, clampCamera, applyZoom } from '../math/cameraMath';
+
+/**
+ * Classe que armazena estado da câmera (posição e zoom) e expõe
+ * métodos para pan e zoom, garantindo limites via cameraMath.
+ */
+
+export interface CameraState {
+  pos: Point;
+  zoom: number;
+}
+
+export class Camera {
+  private pos: Point;
+  private zoom: number;
+  private viewport: Viewport;
+  private boardSizeInPx: BoardSize;
+
+  /**
+   * @param initPos Posição inicial da câmera (x,y) em px.
+   * @param initZoom Zoom inicial.
+   * @param viewport Tamanho do viewport (aparência) em px.
+   * @param boardSizeInPx Tamanho total do tabuleiro (em px).
+   */
+  constructor(
+    initPos: Point,
+    initZoom: number,
+    viewport: Viewport,
+    boardSizeInPx: BoardSize
+  ) {
+    this.pos = { ...initPos };
+    this.zoom = initZoom;
+    this.viewport = { ...viewport };
+    this.boardSizeInPx = { ...boardSizeInPx };
+    this.clamp(); // garante limites já no construtor
+  }
+
+  /**
+   * Ajusta a posição (pan) somando dx, dy; depois aplica clamp.
+   */
+  pan(dx: number, dy: number): void {
+    this.pos = { x: this.pos.x + dx, y: this.pos.y + dy };
+    this.clamp();
+  }
+
+  /**
+   * Ajusta o zoom com delta; usa applyZoom para limitar e depois clamp.
+   */
+  zoomBy(delta: number): void {
+    this.zoom = applyZoom(this.zoom, delta);
+    this.clamp();
+  }
+
+  /**
+   * Força a câmera a ficar dentro dos limites do tabuleiro (em px), usando cameraMath.clampCamera.
+   */
+  private clamp(): void {
+    const clamped = clampCamera(
+      this.pos,
+      this.viewport,
+      this.boardSizeInPx
+    );
+    this.pos = clamped;
+  }
+
+  /** Retorna posição atual. */
+  getPosition(): Point {
+    return { ...this.pos };
+  }
+
+  /** Retorna zoom atual. */
+  getZoom(): number {
+    return this.zoom;
+  }
+
+  /**
+   * Atualiza o tamanho do viewport (por ex., após resize na tela do usuário).
+   */
+  setViewport(viewport: Viewport): void {
+    this.viewport = { ...viewport };
+    this.clamp();
+  }
+
+  /**
+   * Atualiza o tamanho total do tabuleiro (em px). Útil se o tabuleiro mudar de dimensões.
+   */
+  setBoardSize(boardSize: BoardSize): void {
+    this.boardSizeInPx = { ...boardSize };
+    this.clamp();
+  }
+}
+--------------------------------------------------------------------
+END: src/core/models/Camera.ts
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+BEGIN: src/core/math/isoCoordinate.ts
+--------------------------------------------------------------------
+/**
+ * Conversões puramente matemáticas entre coordenadas de tile (linha/coluna)
+ * e coordenadas de tela (x, y) em projeção isométrica.
+ */
+
+/**
+ * Converte de (tileX, tileY) no grid para (screenX, screenY) em pixels.
+ * - tileSize: largura do tile (em px) na parte larga (X).
+ * - tileHeight: altura “empinada” do tile (em px) na parte vertical (Y).
+ */
+export function toScreenPos(
+  tileX: number,
+  tileY: number,
+  tileSize: number,
+  tileHeight: number
+): { x: number; y: number } {
+  const halfWidth = tileSize / 2;
+  const halfHeight = tileHeight / 2;
+  const screenX = (tileX - tileY) * halfWidth;
+  const screenY = (tileX + tileY) * halfHeight;
+  return { x: screenX, y: screenY };
+}
+
+/**
+ * Converte de (screenX, screenY) em pixels para (tileX, tileY) no grid.
+ * - tileSize e tileHeight devem ser os mesmos usados em toScreenPos.
+ *
+ * Atenção: retorna valores flutuantes; para “colocar” em um tile exato, arredonde após
+ * chamar este método (por exemplo, Math.round ou Math.floor, dependendo da sua regra).
+ */
+export function toTilePos(
+  screenX: number,
+  screenY: number,
+  tileSize: number,
+  tileHeight: number
+): { tileX: number; tileY: number } {
+  const halfWidth = tileSize / 2;
+  const halfHeight = tileHeight / 2;
+
+  // Fórmulas invertendo as equações de toScreenPos
+  const tileX = (screenX / halfWidth + screenY / halfHeight) / 2;
+  const tileY = (screenY / halfHeight - screenX / halfWidth) / 2;
+  return { tileX, tileY };
+}
+--------------------------------------------------------------------
+END: src/core/math/isoCoordinate.ts
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+BEGIN: src/core/math/cameraMath.ts
+--------------------------------------------------------------------
+/**
+ * Funções puras para lidar com câmera: limites de panning, aplicação de zoom, etc.
+ */
+
+export interface Point {
+  x: number;
+  y: number;
+}
+
+export interface Viewport {
+  width: number;
+  height: number;
+}
+
+export interface BoardSize {
+  width: number;
+  height: number;
+}
+
+/**
+ * Garante que a câmera fique dentro dos limites do tabuleiro.
+ * Recebe a posição desejada (pos), o tamanho do viewport (largura e altura em px),
+ * e o tamanho total do tabuleiro (em px). Retorna nova posição (x,y) dentro dos limites.
+ */
+export function clampCamera(
+  pos: Point,
+  viewport: Viewport,
+  boardSize: BoardSize
+): Point {
+  const halfW = viewport.width / 2;
+  const halfH = viewport.height / 2;
+
+  // limites para o centro da câmera
+  const minX = -halfW;
+  const maxX = boardSize.width - halfW;
+  const minY = -halfH;
+  const maxY = boardSize.height - halfH;
+
+  const clampedX = Math.max(minX, Math.min(pos.x, maxX));
+  const clampedY = Math.max(minY, Math.min(pos.y, maxY));
+  return { x: clampedX, y: clampedY };
+}
+
+/**
+ * Ajusta o valor de zoom de acordo com delta (por exemplo, wheelDelta ou pinch).
+ * Apenas retorna novo scale; caps mínimo e máximo podem ser aplicados externamente.
+ */
+export function applyZoom(currentZoom: number, delta: number): number {
+  // Suaviza o efeito: se delta positivo, aumenta; se negativo, diminui
+  const factor = 0.001; // sensibilidade
+  const newZoom = currentZoom + delta * factor;
+  // Limita entre 0.5x e 3x por padrão (pode-se ajustar)
+  return Math.max(0.5, Math.min(newZoom, 3));
+}
+--------------------------------------------------------------------
+END: src/core/math/cameraMath.ts
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+BEGIN: src/core/math/tileUtils.ts
+--------------------------------------------------------------------
+/**
+ * Funções auxiliares para trabalho com tiles: vizinhança, adjacência, etc.
+ */
+
+/**
+ * Retorna as 4 posições vizinhas (N, S, L, O) do tile (x,y).
+ */
+export function getNeighbors(
+  tileX: number,
+  tileY: number
+): Array<{ x: number; y: number }> {
+  return [
+    { x: tileX, y: tileY - 1 }, // norte
+    { x: tileX + 1, y: tileY }, // leste
+    { x: tileX, y: tileY + 1 }, // sul
+    { x: tileX - 1, y: tileY }, // oeste
+  ];
+}
+
+/**
+ * Retorna true se dois tiles (a e b) são adjacentes ortogonalmente.
+ */
+export function areTilesAdjacent(
+  a: { x: number; y: number },
+  b: { x: number; y: number }
+): boolean {
+  const dx = Math.abs(a.x - b.x);
+  const dy = Math.abs(a.y - b.y);
+  return (dx === 1 && dy === 0) || (dx === 0 && dy === 1);
+}
+--------------------------------------------------------------------
+END: src/core/math/tileUtils.ts
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+BEGIN: src/core/engine/DragController.ts
+--------------------------------------------------------------------
+import { Camera } from '../models/Camera';
+import { BoardStateManager } from './BoardStateManager';
+import type { TileData } from '../models/Tile';
+import { toTilePos } from '../math/isoCoordinate';
+
+/**
+ * Descreve o estado atual de drag & preview:
+ * - isDragging: se já iniciamos arraste de um tile.
+ * - tile: dados do tile que está sendo arrastado (ou null).
+ * - ghostPos: posição de tela (em pixels) onde o “fantasma” do tile deve ser desenhado.
+ *   Null se não estiver em arraste.
+ */
+export type DragState = {
+  isDragging: boolean;
+  tile: TileData | null;
+  ghostPos: { x: number; y: number } | null; // em px na tela
+};
+
+/**
+ * Controlador de arraste: recebe tile, rastreia movimento, calcula tileX/tileY finais
+ * e dispara onDrop se posição válida. Precisa de BoardStateManager e Camera para converter
+ * coordenadas de tela ↔ coordenadas de grid.
+ */
+export class DragController {
+  private boardManager: BoardStateManager;
+  private camera: Camera;
+  private listenersDrop: Set<(x: number, y: number, tile: TileData) => void>;
+  private state: DragState;
+
+  constructor(boardManager: BoardStateManager, camera: Camera) {
+    this.boardManager = boardManager;
+    this.camera = camera;
+    this.listenersDrop = new Set();
+    this.state = {
+      isDragging: false,
+      tile: null,
+      ghostPos: null,
+    };
+  }
+
+  /**
+   * Inicia o arraste de um tile. `startScreen` são coordenadas de tela em px onde o
+   * usuário clicou/começou o drag.
+   */
+  startDrag(tile: TileData, startScreen: { x: number; y: number }): void {
+    this.state.isDragging = true;
+    this.state.tile = tile;
+    this.state.ghostPos = { x: startScreen.x, y: startScreen.y };
+  }
+
+  /**
+   * Atualiza o posicionamento do “fantasma” conforme o mouse/toque se move.
+   */
+  updateDrag(screenPos: { x: number; y: number }): void {
+    if (!this.state.isDragging || !this.state.tile) return;
+    this.state.ghostPos = { x: screenPos.x, y: screenPos.y };
+  }
+
+  /**
+   * Tenta finalizar o arraste: converte screenPos (em px) para (tileX,tileY), tenta inserir.
+   * Se inserir com sucesso, retorna true e dispara listeners de drop.
+   * Em qualquer caso, reinicia `state` para “sem arraste”.
+   */
+  endDrag(screenPos: { x: number; y: number }): boolean {
+    if (!this.state.isDragging || !this.state.tile) {
+      this.clearState();
+      return false;
+    }
+
+    // Converte screen → coords de grid (valores flutuantes)
+    const { tileX: fx, tileY: fy } = toTilePos(
+      screenPos.x - this.camera.getPosition().x,
+      screenPos.y - this.camera.getPosition().y,
+      128, // tileSize fixo (pode ser tornado parâmetro no futuro)
+      64   // tileHeight fixo
+    );
+
+    const x = Math.round(fx);
+    const y = Math.round(fy);
+
+    // Tenta colocar no tabuleiro
+    const tileData = this.state.tile;
+    let success = false;
+    if (this.boardManager.placeTile(x, y, tileData)) {
+      success = true;
+      // Dispara callbacks de drop para renderização por quem estiver ouvindo
+      for (const cb of this.listenersDrop) {
+        cb(x, y, tileData);
+      }
+    }
+    // independentemente de ter sido colocado, limpamos o estado
+    this.clearState();
+    return success;
+  }
+
+  /**
+   * Limpa estado interno de arraste.
+   */
+  private clearState(): void {
+    this.state = {
+      isDragging: false,
+      tile: null,
+      ghostPos: null,
+    };
+  }
+
+  /**
+   * Retorna cópia do DragState atual.
+   */
+  getState(): DragState {
+    return {
+      isDragging: this.state.isDragging,
+      tile: this.state.tile ? { ...this.state.tile } : null,
+      ghostPos: this.state.ghostPos
+        ? { x: this.state.ghostPos.x, y: this.state.ghostPos.y }
+        : null,
+    };
+  }
+
+  /**
+   * Registra um listener que será chamado quando um tile for dropado com sucesso.
+   * Callback recebe (x, y, tileData).
+   */
+  onDrop(callback: (x: number, y: number, tile: TileData) => void): void {
+    this.listenersDrop.add(callback);
+  }
+
+  offDrop(callback: (x: number, y: number, tile: TileData) => void): void {
+    this.listenersDrop.delete(callback);
+  }
+}
+--------------------------------------------------------------------
+END: src/core/engine/DragController.ts
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+BEGIN: src/core/engine/BoardStateManager.ts
+--------------------------------------------------------------------
+import { Board, type TileAtXY } from '../models/Board';
+import type { TileData } from '../models/Tile';
+
+/**
+ * Gerencia o estado do tabuleiro e notifica listeners sempre que há mudança.
+ * Pode-se conectar lógica de rede (socket) ou validações mais complexas.
+ */
+
+export type BoardChangeListener = (tiles: TileAtXY[]) => void;
+
+export class BoardStateManager {
+  private board: Board;
+  private listeners: Set<BoardChangeListener>;
+
+  constructor(width: number, height: number) {
+    this.board = new Board(width, height);
+    this.listeners = new Set();
+  }
+
+  /**
+   * Registra um listener para mudanças: sempre que houver placeTile ou removeTile,
+   * chamamos todos os listeners com a lista completa de tiles posicionados.
+   */
+  onChange(listener: BoardChangeListener): void {
+    this.listeners.add(listener);
+  }
+
+  offChange(listener: BoardChangeListener): void {
+    this.listeners.delete(listener);
+  }
+
+  /**
+   * Coloca um tile em (x,y). Se sucesso, notifica listeners com lista atualizada.
+   */
+  placeTile(x: number, y: number, tile: TileData): boolean {
+    const success = this.board.addTile(x, y, tile);
+    if (success) {
+      this.emitChange();
+    }
+    return success;
+  }
+
+  /**
+   * Remove um tile em (x,y). Se existia e foi removido, notifica listeners.
+   */
+  removeTile(x: number, y: number): boolean {
+    const success = this.board.removeTile(x, y);
+    if (success) {
+      this.emitChange();
+    }
+    return success;
+  }
+
+  /**
+   * Retorna o estado imutável atual do board (lista de TileAtXY).
+   */
+  getState(): TileAtXY[] {
+    return this.board.getAllTiles();
+  }
+
+  /**
+   * Notifica todos listeners com o array completo de TileAtXY.
+   */
+  private emitChange(): void {
+    const snapshot = this.getState();
+    for (const listener of this.listeners) {
+      listener(snapshot);
+    }
+  }
+
+  /**
+   * Limpa o board por completo e notifica listeners.
+   */
+  clearBoard(): void {
+    this.board.clear();
+    this.emitChange();
+  }
+
+  /**
+   * Retorna largura e altura do tabuleiro (em tiles).
+   */
+  getWidth(): number {
+    return this.board.getWidth();
+  }
+  getHeight(): number {
+    return this.board.getHeight();
+  }
+}
+--------------------------------------------------------------------
+END: src/core/engine/BoardStateManager.ts
+--------------------------------------------------------------------
+
