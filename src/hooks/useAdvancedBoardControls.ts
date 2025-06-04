@@ -26,7 +26,7 @@ export interface BookmarkData {
   timestamp: number;
 }
 
-export interface AdvancedBoardControlsOptions {
+export interface AdvancedControlsConfig {
   /**
    * Se habilita controles de teclado (WASD, setas, etc.).
    * Padrão: true
@@ -52,21 +52,42 @@ export interface AdvancedBoardControlsOptions {
   onCameraMove?: () => void;
 }
 
+export interface AdvancedBoardControls {
+  // Estado atual
+  getCurrentPosition: () => { x: number; y: number };
+  getCurrentZoom: () => number;
+  isAnimating: boolean;
+  isFollowing: boolean;
+  
+  // Controles básicos
+  centerCamera: () => void;
+  resetZoom: () => void;
+  
+  // Teleporte
+  teleportTo: (position: { x: number; y: number }) => void;
+  
+  // Bookmarks
+  bookmarks: BookmarkData[];
+  addBookmark: (name: string) => void;
+  removeBookmark: (id: string) => void;
+  goToBookmark: (id: string) => void;
+  
+  // Auto-seguimento
+  startFollowing: (target: { x: number; y: number }) => void;
+  stopFollowing: () => void;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Hook                                                               */
 /* ------------------------------------------------------------------ */
-export function useAdvancedBoardControls(
+export const useAdvancedBoardControls = (
   camera: Camera,
-  {
-    enableKeyboardControls = true,
-    enableSmoothAnimations = true,
-    containerRef,
-    onCameraMove,
-  }: AdvancedBoardControlsOptions = {},
-) {
+  config: AdvancedControlsConfig = {}
+): AdvancedBoardControls => {
   /* ======================   STATE React   ======================= */
   const [bookmarks,  setBookmarks]  = useState<BookmarkData[]>([]);
-  const [isAnimating, setAnimating] = useState(false);
+  const [isAnimating, setIsAnimating] = useState<boolean>(false);
+  const [isFollowing, setIsFollowing] = useState<boolean>(false);
   const [followTarget, setFollow]   = useState<Point2D | null>(null);
 
   /* ======================   REFS mutáveis  ====================== */
@@ -92,14 +113,14 @@ export function useAdvancedBoardControls(
       // Agendar chamada para depois do throttling
       cameraMoveTimeoutRef.current = setTimeout(() => {
         lastCameraMoveRef.current = Date.now();
-        onCameraMove?.();
+        config.onCameraMove?.();
       }, 300);
       return;
     }
     
     lastCameraMoveRef.current = now;
-    onCameraMove?.();
-  }, [onCameraMove]);
+    config.onCameraMove?.();
+  }, [config.onCameraMove]);
 
   /* =============================================================== */
   /*  Util: distinguir INPUT/TEXTAREA                                */
@@ -114,7 +135,7 @@ export function useAdvancedBoardControls(
   const teleportTo = useCallback(
     (dest: Point2D, destZoom?: number) => {
       /* 1) simples, sem animação ---------------------------------- */
-      if (!enableSmoothAnimations) {
+      if (!config.enableSmoothAnimations) {
         const endZoom = destZoom ?? camera.getZoom();
         const start   = camera.getPosition();
         camera.pan(dest.x - start.x, dest.y - start.y);
@@ -124,7 +145,7 @@ export function useAdvancedBoardControls(
       }
 
       /* 2) animação ------------------------------------------------ */
-      setAnimating(true);
+      setIsAnimating(true);
       const start     = camera.getPosition();
       const startZoom = camera.getZoom();
       const endZoom   = destZoom ?? startZoom;
@@ -148,7 +169,7 @@ export function useAdvancedBoardControls(
         if (p < 1) {
           rafTeleportRef.current = requestAnimationFrame(step);
         } else {
-          setAnimating(false);
+          setIsAnimating(false);
           rafTeleportRef.current = null;
         }
       };
@@ -158,7 +179,7 @@ export function useAdvancedBoardControls(
       }
       rafTeleportRef.current = requestAnimationFrame(step);
     },
-    [camera, enableSmoothAnimations, throttledCameraMove],
+    [camera, config.enableSmoothAnimations, throttledCameraMove],
   );
 
   /* Atalhos prontos */
@@ -175,16 +196,15 @@ export function useAdvancedBoardControls(
   /*  Bookmarks                                                      */
   /* =============================================================== */
   const addBookmark = useCallback(
-    (name: string, pos?: Point2D, zoom?: number) => {
+    (name: string) => {
       const b: BookmarkData = {
         id: `bm_${Date.now()}`,
         name: name || 'bookmark',
-        position: pos  ?? camera.getPosition(),
-        zoom:     zoom ?? camera.getZoom(),
+        position: camera.getPosition(),
+        zoom: camera.getZoom(),
         timestamp: Date.now(),
       };
       setBookmarks(prev => [...prev, b]);
-      return b.id;
     },
     [camera],
   );
@@ -241,7 +261,7 @@ export function useAdvancedBoardControls(
   /*  Teclado: captura + loop                                         */
   /* =============================================================== */
   useEffect(() => {
-    if (!enableKeyboardControls) return;
+    if (!config.enableKeyboardControls) return;
 
     /* ---------- captura ---------- */
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
@@ -261,13 +281,13 @@ export function useAdvancedBoardControls(
       keysRef.current.delete(e.code);
     };
 
-    const tgt: Document | HTMLElement = containerRef?.current ?? document;
+    const tgt: Document | HTMLElement = config.containerRef?.current ?? document;
     tgt.addEventListener('keydown', onKeyDown as EventListener);
     tgt.addEventListener('keyup', onKeyUp as EventListener);
 
     /* Focus no container (se existir) */
-    if (containerRef?.current) {
-      const el = containerRef.current;
+    if (config.containerRef?.current) {
+      const el = config.containerRef.current;
       el.tabIndex = 0;
       el.style.outline = 'none';
       el.focus({ preventScroll: true });
@@ -298,7 +318,7 @@ export function useAdvancedBoardControls(
         if (dz) camera.zoomBy(dz);
         
         // 🔧 CORREÇÃO DO BUG: Notificar movimento de câmera
-        if ((dx || dy || dz) && onCameraMove) {
+        if ((dx || dy || dz) && config.onCameraMove) {
           throttledCameraMove();
         }
       }
@@ -316,7 +336,7 @@ export function useAdvancedBoardControls(
         rafKeyboardRef.current = null;
       }
     };
-  }, [enableKeyboardControls, containerRef, centerCamera, resetZoom, camera, throttledCameraMove]);
+  }, [config.enableKeyboardControls, config.containerRef, centerCamera, resetZoom, camera, throttledCameraMove]);
 
   /* =============================================================== */
   /*  Limpeza global (unmount)                                        */
@@ -330,29 +350,30 @@ export function useAdvancedBoardControls(
   }, []);
 
   /* =============================================================== */
-  /*  API exposto                                                     */
+  /*  Return                                                          */
   /* =============================================================== */
   return {
-    /* navegação básica */
-    teleportTo,
+    /* Estado */
+    getCurrentPosition: () => camera.getPosition(),
+    getCurrentZoom: () => camera.getZoom(),
+    isAnimating,
+    isFollowing,
+
+    /* Controles básicos */
     centerCamera,
     resetZoom,
 
-    /* follow */
-    startFollowing,
-    stopFollowing,
-    isFollowing : followTarget !== null,
-    followTarget,
+    /* Teleporte */
+    teleportTo,
 
-    /* bookmarks */
+    /* Bookmarks */
     bookmarks,
     addBookmark,
     removeBookmark,
     goToBookmark,
 
-    /* estado */
-    isAnimating,
-    getCurrentPosition: () => camera.getPosition(),
-    getCurrentZoom   : () => camera.getZoom(),
+    /* Auto-seguimento */
+    startFollowing,
+    stopFollowing,
   };
 }

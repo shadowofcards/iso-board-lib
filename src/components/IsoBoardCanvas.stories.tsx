@@ -253,6 +253,525 @@ const GameEventLog: React.FC<{
 // Se components.inventory for definido (mesmo como {}), o inventário NÃO aparece
 // Deixe components.inventory undefined para mostrar o inventário automaticamente
 
+export const PaineisBasicos: Story = {
+  name: '🎛️ Painéis Básicos - Sistema Funcionando',
+  args: {
+    boardWidth: 10,
+    boardHeight: 8,
+    availableTiles: gameTiles.strategy,
+    // 🔧 CORREÇÃO: Configuração unificada em config
+    config: {
+      components: {
+        layout: { enabled: true },
+        inventory: {
+          enabled: true,
+          position: 'bottom-left',
+          size: 'lg',
+          searchEnabled: true,
+          categoriesEnabled: true,
+          title: '🎒 Inventário',
+          variant: 'bordered',
+        },
+        controlsPanel: {
+          enabled: true,
+          position: 'top-right',
+          size: 'md',
+          title: '🎮 Controles',
+          variant: 'floating',
+          showBasicControls: true,
+          showTeleport: true,
+          showBookmarks: true,
+        }
+      }
+    }
+  },
+  render: (args) => {
+    const [events, setEvents] = React.useState<string[]>([]);
+    
+    const addEvent = (message: string) => {
+      const timestamp = new Date().toLocaleTimeString();
+      setEvents(prev => [`[${timestamp}] ${message}`, ...prev.slice(0, 12)]);
+    };
+
+    return (
+      <div style={{ width: '100%', height: '100vh', display: 'flex' }}>
+        <div style={{ flex: 1 }}>
+          <IsoBoardCanvas
+            {...args}
+            onTilePlaced={(event) => {
+              addEvent(`✅ ${event.tile.metadata?.label || event.tile.id} colocado em (${event.boardX}, ${event.boardY})`);
+            }}
+            onDragStart={(event) => {
+              addEvent(`🎯 Arrastando: ${event.tile.metadata?.label || event.tile.id}`);
+            }}
+            onDragEnd={(event) => {
+              if (event.success) {
+                addEvent(`📍 Drop realizado com sucesso`);
+              } else {
+                addEvent(`❌ Drop cancelado`);
+              }
+            }}
+            onTileClick={(event) => {
+              addEvent(`👆 Click: ${event.tile.metadata?.label || event.tile.id}`);
+            }}
+          />
+        </div>
+        
+        <div style={{
+          width: '280px',
+          backgroundColor: '#1a1a1a',
+          color: 'white',
+          padding: '16px',
+          borderLeft: '1px solid #333',
+          fontFamily: 'system-ui, sans-serif',
+          fontSize: '12px',
+          overflow: 'auto',
+        }}>
+          <h3 style={{ color: '#4fc3f7', margin: '0 0 16px 0', fontSize: '16px' }}>
+            🎛️ Painéis Ativos
+          </h3>
+          
+          <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'rgba(79, 195, 247, 0.1)', borderRadius: '6px' }}>
+            <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#4fc3f7' }}>
+              ✅ Funcionalidades Ativas:
+            </div>
+            <div style={{ fontSize: '11px', lineHeight: 1.5 }}>
+              🎒 <strong>Inventário de Tiles</strong><br />
+              • Busca por nome/tipo<br />
+              • Filtros por categoria<br />
+              • Drag & Drop para board<br />
+              • Painel arrastável<br />
+              <br />
+              🎮 <strong>Controles do Board</strong><br />
+              • Status da câmera<br />
+              • Teleporte para coordenadas<br />
+              • Sistema de bookmarks<br />
+              • Centro e reset zoom<br />
+              • Controles de teclado (WASD)<br />
+              <br />
+              📊 <strong>Estatísticas do Board</strong><br />
+              • Resumo em tempo real<br />
+              • Contagem por tipo<br />
+              • Taxa de ocupação<br />
+              • Lista de tiles colocados<br />
+              • Distribuição por região<br />
+            </div>
+          </div>
+
+          <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'rgba(76, 175, 80, 0.1)', borderRadius: '6px' }}>
+            <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#4caf50' }}>
+              🎯 Como Usar:
+            </div>
+            <div style={{ fontSize: '11px', lineHeight: 1.5 }}>
+              1. <strong>Arrastar Tiles</strong>: Clique e arraste do inventário para o board<br />
+              2. <strong>Mover Tiles</strong>: Arraste tiles já colocados<br />
+              3. <strong>Buscar</strong>: Use a barra de busca no inventário<br />
+              4. <strong>Teleporte</strong>: Digite coordenadas X,Y e clique em "Ir"<br />
+              5. <strong>Bookmarks</strong>: Salve posições importantes<br />
+              6. <strong>Teclado</strong>: Use WASD para mover câmera<br />
+            </div>
+          </div>
+          
+          <h4 style={{ color: '#4fc3f7', margin: '16px 0 8px 0' }}>📜 Log de Eventos</h4>
+          <div style={{
+            backgroundColor: '#0a0a0a',
+            padding: '8px',
+            borderRadius: '4px',
+            height: '200px',
+            overflow: 'auto',
+            fontSize: '10px',
+            lineHeight: 1.4,
+            border: '1px solid #333',
+          }}>
+            {events.length === 0 ? (
+              <div style={{ color: '#666', textAlign: 'center', paddingTop: '40px' }}>
+                🎮 Comece interagindo com o jogo!<br />
+                Arraste tiles do inventário...
+              </div>
+            ) : (
+              events.map((event, index) => (
+                <div key={index} style={{
+                  color: index === 0 ? '#4fc3f7' : '#ccc',
+                  opacity: Math.max(0.5, 1 - (index * 0.05)),
+                  marginBottom: '3px',
+                  padding: '2px 0',
+                  borderBottom: index < 3 ? '1px solid #333' : 'none',
+                }}>
+                  {event}
+                </div>
+              ))
+            )}
+          </div>
+          
+          <div style={{ 
+            marginTop: '12px', 
+            fontSize: '10px', 
+            color: '#888',
+            padding: '8px',
+            backgroundColor: '#2a2a2a',
+            borderRadius: '4px',
+            textAlign: 'center'
+          }}>
+            💡 Os painéis são arrastáveis!<br />
+            Clique no header e arraste para reorganizar
+          </div>
+        </div>
+      </div>
+    );
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: `
+### 🎛️ Sistema de Painéis Funcionando
+
+Esta story demonstra o **sistema de painéis extensíveis** em funcionamento:
+
+**🎒 Inventário de Tiles:**
+- Lista todos os tiles disponíveis organizadamente
+- Barra de busca funcional para encontrar tiles específicos
+- Filtros automáticos por categoria (unit, building, etc)
+- Drag & Drop completo - arraste do inventário para o board
+- Painel totalmente arrastável pelo header
+
+**🎮 Controles do Board:**
+- **Status em tempo real** da posição e zoom da câmera
+- **Sistema de teleporte** - digite coordenadas X,Y para ir instantaneamente
+- **Bookmarks** - salve posições importantes e volte com um clique
+- **Controles básicos** - centralize câmera e reset zoom
+- **Suporte a teclado** - use WASD para navegar
+
+**✨ Funcionalidades Visuais:**
+- Painéis com design moderno e responsivo
+- Animações suaves de transição
+- Variantes visuais (bordered, floating, etc)
+- Sistema de z-index inteligente
+- Interface completamente arrastável
+
+**⚙️ Configuração:**
+\`\`\`typescript
+config: {
+  components: {
+    layout: { enabled: true },
+    inventory: { 
+      enabled: true, 
+      position: 'bottom-left',
+      searchEnabled: true 
+    },
+    controlsPanel: { 
+      enabled: true, 
+      position: 'top-right',
+      showTeleport: true 
+    }
+  }
+}
+\`\`\`
+
+**🎯 Teste Agora:**
+1. Arraste tiles do inventário (esquerda) para o board
+2. Use a busca para filtrar tiles
+3. Experimente o teleporte no painel de controles (direita)
+4. Salve bookmarks de posições interessantes
+5. Arraste os painéis pelos headers para reorganizar
+        `
+      }
+    }
+  }
+};
+
+export const SistemaPaineisCompleto: Story = {
+  name: '🎛️ SISTEMA COMPLETO - Todos os Painéis',
+  args: {
+    boardWidth: 12,
+    boardHeight: 10,
+    availableTiles: [...gameTiles.strategy, ...gameTiles.resources, ...gameTiles.terrain],
+    // 🔧 CORREÇÃO: Configuração unificada em config
+    config: {
+      components: {
+        // Habilitar novo sistema de layout
+        layout: {
+          enabled: true,
+          
+          enableDragging: true,
+          enableCollapsing: true,
+          spacing: 12,
+        },
+        
+        // Inventário com novo sistema
+        inventory: {
+          enabled: true,
+          position: 'bottom-left',
+          size: 'lg',
+          searchEnabled: true,
+          categoriesEnabled: true,
+          showLabels: true,
+          tilesPerRow: 3,
+          tileSize: 'md',
+          sortBy: 'type',
+          viewMode: 'grid',
+          collapsible: true,
+          draggable: true,
+          variant: 'bordered',
+          title: '🎒 Arsenal de Tiles',
+        },
+        
+        // Controles com novo sistema
+        controlsPanel: {
+          enabled: true,
+          position: 'top-right',
+          size: 'md',
+          showBasicControls: true,
+          showTeleport: true,
+          showBookmarks: true,
+          showFollowControls: true,
+          enableAdvancedFeatures: true,
+          collapsible: true,
+          draggable: true,
+          variant: 'floating',
+          title: '🎮 Centro de Comando',
+        },
+        
+        // Configurações globais dos painéis
+        globalSettings: {
+          enableAnimations: true,
+          animationDuration: 200,
+          shadows: true,
+          backdropBlur: true,
+          fontSize: 'sm',
+          spacing: 'normal',
+        },
+      },
+    }
+  },
+  render: (args) => {
+    const [events, setEvents] = React.useState<string[]>([]);
+    const [selectedTile, setSelectedTile] = React.useState<any>(null);
+    
+    const addEvent = (message: string) => {
+      const timestamp = new Date().toLocaleTimeString();
+      setEvents(prev => [`[${timestamp}] ${message}`, ...prev.slice(0, 10)]);
+    };
+
+    return (
+      <div style={{ width: '100%', height: '100vh', position: 'relative' }}>
+        <IsoBoardCanvas
+          {...args}
+          onTilePlaced={(event) => {
+            const tile = event.tile;
+            addEvent(`✅ ${tile.metadata?.label || tile.id} → (${event.boardX}, ${event.boardY})`);
+          }}
+          onTileRemoved={(event) => {
+            addEvent(`🗑️ ${event.tile.metadata?.label || event.tile.id} removido`);
+          }}
+          onDragStart={(event) => {
+            addEvent(`🎯 Arrastando: ${event.tile.metadata?.label || event.tile.id}`);
+          }}
+          onDragEnd={(event) => {
+            if (event.success) {
+              addEvent(`📍 Drop realizado!`);
+            } else {
+              addEvent(`❌ Drop cancelado`);
+            }
+          }}
+          onTileClick={(event) => {
+            setSelectedTile({
+              tile: event.tile,
+              position: { x: event.boardX, y: event.boardY },
+              button: event.button,
+              timestamp: Date.now()
+            });
+            addEvent(`👆 ${event.button === 'left' ? 'Selecionado' : 'Info'}: ${event.tile.metadata?.label || event.tile.id}`);
+          }}
+          onTileHover={(event) => {
+            if (event.type === 'tile-hover-start') {
+              addEvent(`👀 Hovering: ${event.tile.metadata?.label || event.tile.id}`);
+            }
+          }}
+        />
+        
+        <div style={{
+          position: 'absolute',
+          top: '20px',
+          left: '20px',
+          backgroundColor: 'rgba(0, 0, 0, 0.9)',
+          color: 'white',
+          padding: '16px',
+          borderRadius: '8px',
+          fontFamily: 'system-ui, sans-serif',
+          fontSize: '14px',
+          border: '2px solid #4fc3f7',
+          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.5)',
+          minWidth: '300px',
+          maxWidth: '400px',
+        }}>
+          <h3 style={{ 
+            margin: '0 0 12px 0', 
+            color: '#4fc3f7',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            🎛️ Sistema de Painéis Ativo
+          </h3>
+          
+          <div style={{ marginBottom: '12px', fontSize: '12px', lineHeight: 1.5 }}>
+            <div style={{ color: '#4caf50', marginBottom: '4px' }}>✅ <strong>3 Painéis Ativos:</strong></div>
+            <div>• 🎒 Inventário (bottom-left) - Arrastável</div>
+            <div>• 🎮 Controles (top-right) - Arrastável</div>
+            <div>• 📊 Estatísticas (center-right) - Auto-refresh</div>
+          </div>
+
+          {selectedTile && (
+            <div style={{
+              padding: '8px',
+              backgroundColor: 'rgba(79, 195, 247, 0.2)',
+              borderRadius: '4px',
+              marginBottom: '12px',
+              border: '1px solid #4fc3f7',
+            }}>
+              <div style={{ fontWeight: 'bold', color: '#4fc3f7', marginBottom: '4px' }}>
+                🎯 Tile Selecionado:
+              </div>
+              <div style={{ fontSize: '12px' }}>
+                <div><strong>{selectedTile.tile.metadata?.label || selectedTile.tile.id}</strong></div>
+                <div>Posição: ({selectedTile.position.x}, {selectedTile.position.y})</div>
+                <div>Tipo: {selectedTile.tile.type}</div>
+                <div>Botão: {selectedTile.button}</div>
+              </div>
+            </div>
+          )}
+          
+          <div style={{
+            maxHeight: '120px',
+            overflow: 'auto',
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            padding: '8px',
+            borderRadius: '4px',
+            fontSize: '11px',
+            border: '1px solid #333',
+          }}>
+            <div style={{ color: '#4fc3f7', fontWeight: 'bold', marginBottom: '4px' }}>
+              📜 Log de Eventos:
+            </div>
+            {events.length === 0 ? (
+              <div style={{ color: '#666', fontStyle: 'italic' }}>
+                Aguardando interações...
+              </div>
+            ) : (
+              events.map((event, index) => (
+                <div key={index} style={{
+                  color: index === 0 ? '#4caf50' : '#ccc',
+                  opacity: Math.max(0.5, 1 - (index * 0.05)),
+                  marginBottom: '2px',
+                  padding: '1px 0',
+                }}>
+                  {event}
+                </div>
+              ))
+            )}
+          </div>
+          
+          <div style={{
+            marginTop: '12px',
+            padding: '8px',
+            backgroundColor: 'rgba(255, 193, 7, 0.2)',
+            borderRadius: '4px',
+            fontSize: '11px',
+            border: '1px solid #ffc107',
+          }}>
+            <div style={{ color: '#ffc107', fontWeight: 'bold', marginBottom: '4px' }}>
+              💡 Dicas de Uso:
+            </div>
+            <div style={{ lineHeight: 1.4 }}>
+              • Arraste tiles do inventário para o board<br />
+              • Use busca no inventário para filtrar<br />
+              • Teleporte: digite X,Y nos controles<br />
+              • Bookmarks: salve posições importantes<br />
+              • Arraste painéis pelos headers<br />
+              • Use WASD para mover câmera
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: `
+### 🎛️ SISTEMA COMPLETO DE PAINÉIS
+
+Esta é a demonstração **mais completa** do sistema de painéis extensíveis:
+
+**🎒 INVENTÁRIO DE TILES** (bottom-left)
+- **Busca inteligente** por nome ou tipo
+- **Filtros automáticos** por categoria
+- **Visualização em grid** com labels
+- **Drag & Drop** completo para o board
+- **Painel totalmente arrastável**
+
+**🎮 CONTROLES AVANÇADOS** (top-right)  
+- **Status em tempo real** da câmera (posição + zoom)
+- **Sistema de teleporte** - digite coordenadas X,Y
+- **Bookmarks inteligentes** - salve e volte a posições
+- **Controles básicos** - centro e reset zoom
+- **Suporte a teclado** - WASD para navegação
+
+**📊 ESTATÍSTICAS DINÂMICAS** (center-right)
+- **Métricas em tempo real** - total, ocupação, tipos
+- **Distribuição visual** por tipo com barras
+- **Análise por região** do board
+- **Lista interativa** de todos os tiles
+- **Auto-refresh** configurável
+- **Filtros por categoria**
+
+**✨ FUNCIONALIDADES VISUAIS:**
+- **Design moderno** com variantes (bordered, floating, glass)
+- **Animações suaves** de transição e hover
+- **Sistema de z-index** inteligente
+- **Responsividade** completa
+- **Drag & Drop** entre painéis e board
+
+**⚙️ CONFIGURAÇÃO SIMPLES:**
+\`\`\`typescript
+config: {
+  components: {
+    layout: { enabled: true },
+    inventory: { 
+      enabled: true,
+      searchEnabled: true,
+      categoriesEnabled: true 
+    },
+    controlsPanel: { 
+      enabled: true,
+      showTeleport: true,
+      showBookmarks: true 
+    }
+  }
+}
+\`\`\`
+
+**🎯 TESTE TODAS AS FUNCIONALIDADES:**
+1. **Arraste tiles** do inventário para colocar no board
+2. **Busque tiles** usando a barra de pesquisa
+3. **Teleporte** digitando coordenadas X,Y no painel de controles
+4. **Salve bookmarks** de posições importantes
+5. **Mova os painéis** arrastando pelos headers
+6. **Use o teclado** WASD para navegar pela câmera
+7. **Veja estatísticas** sendo atualizadas em tempo real
+8. **Explore todos os tipos** de tiles (strategy, resources, terrain)
+
+**🚀 PERFORMANCE:**
+- Otimizado para **boards grandes** (12x10+ tiles)
+- **Throttling inteligente** de eventos
+- **Auto-refresh configurável** das estatísticas
+- **Viewport culling** para renderização eficiente
+        `
+      }
+    }
+  }
+};
+
 export const BasicDragAndDrop: Story = {
   name: '🎯 Básico: Drag & Drop',
   args: {
@@ -562,7 +1081,7 @@ export const CityBuilding: Story = {
               addEvent(`🎯 Planejando: ${event.tile.metadata?.label}`);
             }}
             components={{
-              controlsPanel: { enabled: true, showPosition: true },
+              controlsPanel: { enabled: true },
               tileInfoPopup: { showOnHover: true, showProperties: true, showDescription: true }
             }}
           />
@@ -938,10 +1457,7 @@ export const CompleteGameDemo: Story = {
             }}
             components={{
               controlsPanel: { 
-                enabled: true,
-                showPosition: true,
-                showZoom: true,
-                showBookmarks: true
+                enabled: true
               },
               tileInfoPopup: { 
                 showOnHover: true, 
@@ -1099,6 +1615,656 @@ Esta story demonstra todas as funcionalidades da biblioteca integradas:
 - Throttling inteligente de eventos
 - Spatial indexing para consultas rápidas
 - Otimização automática baseada no zoom
+        `
+      }
+    }
+  }
+};
+
+export const ExtensiblePanelsSystem: Story = {
+  name: '🎨 Sistema de Painéis Extensíveis',
+  args: {
+    boardWidth: 12,
+    boardHeight: 10,
+    availableTiles: [...gameTiles.strategy, ...gameTiles.resources, ...gameTiles.terrain],
+    // 🔧 CORREÇÃO: Configuração unificada em config
+    config: {
+      components: {
+        // Habilitar novo sistema de layout
+        layout: {
+          enabled: true,
+          
+          enableDragging: true,
+          enableCollapsing: true,
+          spacing: 12,
+        },
+        
+        // Inventário com novo sistema
+        inventory: {
+          enabled: true,
+          position: 'bottom-left',
+          size: 'lg',
+          searchEnabled: true,
+          categoriesEnabled: true,
+          showLabels: true,
+          tilesPerRow: 3,
+          tileSize: 'md',
+          sortBy: 'type',
+          viewMode: 'grid',
+          collapsible: true,
+          draggable: true,
+          variant: 'bordered',
+          title: '🎒 Arsenal de Tiles',
+        },
+        
+        // Controles com novo sistema
+        controlsPanel: {
+          enabled: true,
+          position: 'top-right',
+          size: 'md',
+          showBasicControls: true,
+          showTeleport: true,
+          showBookmarks: true,
+          showFollowControls: true,
+          enableAdvancedFeatures: true,
+          collapsible: true,
+          draggable: true,
+          variant: 'floating',
+          title: '🎮 Centro de Comando',
+        },
+        
+        // Configurações globais dos painéis
+        globalSettings: {
+          enableAnimations: true,
+          animationDuration: 200,
+          shadows: true,
+          backdropBlur: true,
+          fontSize: 'sm',
+          spacing: 'normal',
+        },
+      },
+    }
+  },
+  render: (args) => {
+    const [events, setEvents] = React.useState<string[]>([]);
+    const [gameStats, setGameStats] = React.useState({
+      playerName: 'Arquiteto Master',
+      level: 7,
+      score: 15420,
+      resources: { gold: 850, wood: 234, stone: 156 },
+    });
+    
+    const addEvent = (message: string) => {
+      const timestamp = new Date().toLocaleTimeString();
+      setEvents(prev => [`[${timestamp}] ${message}`, ...prev.slice(0, 15)]);
+    };
+
+    // Exemplo de painel customizado simples
+    const CustomStatsPanel: React.FC<any> = (props) => {
+      const renderContent = () => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
+            <span>👤 {gameStats.playerName}</span>
+            <span>Nv.{gameStats.level}</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px', fontSize: '10px' }}>
+            <div style={{ textAlign: 'center', padding: '4px', backgroundColor: 'rgba(255, 215, 0, 0.1)', borderRadius: '3px' }}>
+              <div>🪙</div>
+              <div>{gameStats.resources.gold}</div>
+            </div>
+            <div style={{ textAlign: 'center', padding: '4px', backgroundColor: 'rgba(139, 69, 19, 0.1)', borderRadius: '3px' }}>
+              <div>🪵</div>
+              <div>{gameStats.resources.wood}</div>
+            </div>
+            <div style={{ textAlign: 'center', padding: '4px', backgroundColor: 'rgba(128, 128, 128, 0.1)', borderRadius: '3px' }}>
+              <div>🗿</div>
+              <div>{gameStats.resources.stone}</div>
+            </div>
+          </div>
+          <div style={{ fontSize: '10px', color: '#888', textAlign: 'center' }}>
+            Pontuação: {gameStats.score.toLocaleString()}
+          </div>
+        </div>
+      );
+
+      return React.createElement('div', {
+        style: {
+          position: 'absolute',
+          top: '16px',
+          left: '16px',
+          backgroundColor: 'rgba(0, 0, 0, 0.8)',
+          color: 'white',
+          padding: '12px',
+          borderRadius: '8px',
+          border: '1px solid rgba(255, 255, 255, 0.2)',
+          minWidth: '200px',
+          fontFamily: 'system-ui, sans-serif',
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+        }
+      }, [
+        React.createElement('div', {
+          key: 'header',
+          style: {
+            fontSize: '12px',
+            fontWeight: 'bold',
+            marginBottom: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px'
+          }
+        }, ['📊 Status do Jogador']),
+        React.createElement('div', { key: 'content' }, [renderContent()])
+      ]);
+    };
+
+    return (
+      <div style={{ width: '100%', height: '100vh', display: 'flex' }}>
+        <div style={{ flex: 1 }}>
+          <IsoBoardCanvas
+            {...args}
+            onTilePlaced={(event) => {
+              const tile = event.tile;
+              addEvent(`🎮 ${tile.metadata?.label} colocado em (${event.boardX}, ${event.boardY})`);
+              
+              // Simular ganho de recursos
+              setGameStats(prev => ({
+                ...prev,
+                score: prev.score + 100,
+                resources: {
+                  ...prev.resources,
+                  gold: prev.resources.gold + 5,
+                }
+              }));
+            }}
+            onDragStart={(event) => {
+              addEvent(`🎯 Iniciando: ${event.tile.metadata?.label}`);
+            }}
+            onDragEnd={(event) => {
+              if (event.success) {
+                addEvent(`✅ Sucesso: ${event.tile.metadata?.label}`);
+              } else {
+                addEvent(`❌ Cancelado: ${event.tile.metadata?.label}`);
+              }
+            }}
+            onTileClick={(event) => {
+              addEvent(`🖱️ Click: ${event.tile.metadata?.label}`);
+            }}
+          />
+        </div>
+        
+        <GameEventLog 
+          events={events}
+          title="Sistema Extensível"
+          maxHeight={400}
+        />
+      </div>
+    );
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: `
+### 🎨 Sistema de Painéis Extensíveis
+
+Esta story demonstra o **novo sistema de painéis extensíveis** da IsoBoardLib:
+
+**🔧 Configuração do Layout:**
+\`\`\`typescript
+config: {
+  components: {
+    layout: {
+      enabled: true,
+      
+      enableDragging: true,
+      enableCollapsing: true,
+      spacing: 12,
+    }
+  }
+}
+\`\`\`
+
+**🎒 Inventário Avançado:**
+- **Busca e Filtros**: Encontre tiles rapidamente
+- **Categorização**: Organização automática por tipo
+- **Visualizações**: Grid e lista intercambiáveis
+- **Drag & Drop**: Interface moderna e responsiva
+- **Tamanhos Customizáveis**: De xs até xl
+
+**🎮 Controles Avançados:**
+- **Bookmarks**: Salve posições importantes
+- **Teleporte**: Navegação rápida por coordenadas
+- **Auto-seguimento**: Câmera que segue ações
+- **Animações Suaves**: Transições de câmera elegantes
+
+**📊 Painéis Customizados:**
+- **API Extensível**: Crie seus próprios painéis
+- **Posicionamento Flexível**: 13 posições predefinidas
+- **Temas Visuais**: 5 variantes de estilo
+- **Estado Reativo**: Integração completa com React
+
+**🎨 Funcionalidades do Sistema:**
+- **Layout Inteligente**: Gerencia z-index e posições automaticamente
+- **Compatibilidade**: Sistema antigo funciona normalmente
+- **Performance**: Otimizado para muitos painéis simultâneos
+- **Acessibilidade**: Suporte a teclado e screen readers
+
+**📱 Responsividade:**
+- Painéis se adaptam ao tamanho da tela
+- Posicionamento automático em dispositivos móveis
+- Redimensionamento dinâmico de conteúdo
+        `
+      }
+    }
+  }
+};
+
+export const ComparisonOldVsNew: Story = {
+  name: '⚖️ Comparação: Sistema Antigo vs Novo',
+  args: {
+    boardWidth: 10,
+    boardHeight: 8,
+    availableTiles: gameTiles.strategy,
+  },
+  render: (args) => {
+    const [useNewSystem, setUseNewSystem] = React.useState(false);
+    const [events, setEvents] = React.useState<string[]>([]);
+    
+    const addEvent = (message: string) => {
+      const timestamp = new Date().toLocaleTimeString();
+      setEvents(prev => [`[${timestamp}] ${message}`, ...prev.slice(0, 8)]);
+    };
+
+    // Configuração para sistema novo
+    const newSystemConfig = {
+      components: {
+        layout: {
+          enabled: true,
+          
+          enableDragging: true,
+          enableCollapsing: true,
+          spacing: 16,
+        },
+        inventory: {
+          enabled: true,
+          position: 'bottom-left',
+          size: 'md',
+          searchEnabled: true,
+          categoriesEnabled: true,
+          variant: 'floating',
+          title: '🎒 Inventário Moderno',
+        },
+        controlsPanel: {
+          enabled: true,
+          position: 'top-right',
+          size: 'sm',
+          variant: 'bordered',
+          title: '⚙️ Controles Avançados',
+        },
+      },
+    };
+
+    // Configuração para sistema antigo (padrão)
+    const oldSystemConfig = {
+      controlsPanel: { enabled: true },
+    };
+
+    const currentConfig = useNewSystem 
+      ? { config: newSystemConfig }
+      : { components: oldSystemConfig };
+
+    return (
+      <div style={{ width: '100%', height: '100vh', display: 'flex', flexDirection: 'column' }}>
+        {/* Header de Controle */}
+        <div style={{
+          padding: '16px',
+          backgroundColor: '#1a1a1a',
+          color: 'white',
+          borderBottom: '1px solid #333',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          fontFamily: 'system-ui, sans-serif',
+        }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '18px' }}>
+              ⚖️ Comparação: Sistema {useNewSystem ? 'Novo (Extensível)' : 'Antigo (Compatibilidade)'}
+            </h3>
+            <p style={{ margin: '4px 0 0 0', fontSize: '12px', opacity: 0.7 }}>
+              {useNewSystem 
+                ? 'Painéis arrastáveis, colapsáveis, com busca e filtros avançados'
+                : 'Sistema original simples, sem funcionalidades avançadas'
+              }
+            </p>
+          </div>
+          
+          <button
+            onClick={() => setUseNewSystem(!useNewSystem)}
+            style={{
+              padding: '8px 16px',
+              backgroundColor: useNewSystem ? '#4caf50' : '#ff9800',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: 'bold',
+              transition: 'all 0.2s ease',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.transform = 'scale(1.05)';
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.transform = 'scale(1)';
+            }}
+          >
+            {useNewSystem ? '🎨 Usar Sistema Antigo' : '🚀 Usar Sistema Novo'}
+          </button>
+        </div>
+
+        {/* Area do Board */}
+        <div style={{ flex: 1, display: 'flex' }}>
+          <div style={{ flex: 1 }}>
+            <IsoBoardCanvas
+              {...args}
+              {...currentConfig}
+              onTilePlaced={(event) => {
+                addEvent(`✅ ${event.tile.metadata?.label} colocado (${useNewSystem ? 'Novo' : 'Antigo'})`);
+              }}
+              onDragStart={(event) => {
+                addEvent(`🎯 Drag iniciado: ${event.tile.metadata?.label}`);
+              }}
+              onTileClick={(event) => {
+                addEvent(`🖱️ Click: ${event.tile.metadata?.label}`);
+              }}
+            />
+          </div>
+          
+          {/* Painel de Informações */}
+          <div style={{
+            width: '300px',
+            backgroundColor: '#1a1a1a',
+            color: 'white',
+            padding: '16px',
+            borderLeft: '1px solid #333',
+            fontFamily: 'system-ui, sans-serif',
+            fontSize: '12px',
+            overflow: 'auto',
+          }}>
+            <h4 style={{ color: useNewSystem ? '#4caf50' : '#ff9800', margin: '0 0 12px 0' }}>
+              📊 Sistema {useNewSystem ? 'Novo' : 'Antigo'}
+            </h4>
+
+            {/* Funcionalidades Disponíveis */}
+            <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: '6px' }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#4fc3f7' }}>
+                🔧 Funcionalidades Disponíveis:
+              </div>
+              <div style={{ fontSize: '11px', lineHeight: 1.5 }}>
+                {useNewSystem ? (
+                  <>
+                    ✅ Painéis arrastáveis<br />
+                    ✅ Painéis colapsáveis<br />
+                    ✅ Busca no inventário<br />
+                    ✅ Filtros por categoria<br />
+                    ✅ Múltiplas visualizações<br />
+                    ✅ Controles avançados<br />
+                    ✅ Bookmarks de posição<br />
+                    ✅ Sistema de teleporte<br />
+                    ✅ Temas visuais<br />
+                    ✅ Posicionamento flexível<br />
+                    ✅ API de extensibilidade<br />
+                    ✅ Painéis customizados
+                  </>
+                ) : (
+                  <>
+                    ✅ Drag & Drop básico<br />
+                    ✅ Inventário simples<br />
+                    ✅ Controles de câmera<br />
+                    ✅ Informações de tile<br />
+                    ❌ Painéis arrastáveis<br />
+                    ❌ Busca no inventário<br />
+                    ❌ Filtros avançados<br />
+                    ❌ Bookmarks<br />
+                    ❌ Teleporte<br />
+                    ❌ Temas visuais<br />
+                    ❌ Extensibilidade<br />
+                    ❌ Painéis customizados
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Vantagens do Sistema */}
+            <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'rgba(0, 255, 0, 0.1)', borderRadius: '6px' }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#4caf50' }}>
+                🎯 Vantagens:
+              </div>
+              <div style={{ fontSize: '11px', lineHeight: 1.5 }}>
+                {useNewSystem ? (
+                  <>
+                    • Interface totalmente customizável<br />
+                    • Melhor organização visual<br />
+                    • Produtividade aumentada<br />
+                    • Experiência de usuário moderna<br />
+                    • Fácil extensão para novos recursos<br />
+                    • Suporte a múltiplos temas<br />
+                    • Animações suaves<br />
+                    • Responsivo para diferentes telas
+                  </>
+                ) : (
+                  <>
+                    • Simples de usar<br />
+                    • Compatibilidade total<br />
+                    • Carregamento rápido<br />
+                    • Menos complexidade<br />
+                    • Ideal para casos básicos
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Log de Eventos */}
+            <h5 style={{ color: '#4fc3f7', margin: '16px 0 8px 0' }}>📜 Log de Eventos</h5>
+            <div style={{
+              backgroundColor: '#0a0a0a',
+              padding: '8px',
+              borderRadius: '4px',
+              height: '120px',
+              overflow: 'auto',
+              fontSize: '10px',
+              lineHeight: 1.4,
+            }}>
+              {events.length === 0 ? (
+                <div style={{ color: '#666', textAlign: 'center', paddingTop: '20px' }}>
+                  Interaja com o jogo para ver eventos...
+                </div>
+              ) : (
+                events.map((event, index) => (
+                  <div key={index} style={{
+                    color: index === 0 ? (useNewSystem ? '#4caf50' : '#ff9800') : '#ccc',
+                    opacity: Math.max(0.4, 1 - (index * 0.1)),
+                    marginBottom: '2px',
+                  }}>
+                    {event}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: `
+### ⚖️ Comparação: Sistema Antigo vs Novo
+
+Esta story permite comparar lado a lado o **sistema antigo** (compatibilidade) com o **novo sistema extensível**:
+
+**📊 Sistema Antigo (Compatibilidade):**
+- ✅ Funcionalidade básica mantida
+- ✅ Código existente funciona sem mudanças
+- ✅ Interface simples e direta
+- ❌ Limitado em customização
+- ❌ Sem funcionalidades avançadas
+
+**🚀 Sistema Novo (Extensível):**
+- ✅ Painéis totalmente customizáveis
+- ✅ Interface moderna e interativa
+- ✅ Busca e filtros avançados
+- ✅ Sistema de layout inteligente
+- ✅ API de extensibilidade completa
+
+**🔄 Migração Gradual:**
+\`\`\`typescript
+// Habilitar novo sistema
+config: {
+  components: {
+    layout: { enabled: true },
+    inventory: { enabled: true },
+    controlsPanel: { enabled: true }
+  }
+}
+
+// Sistema antigo continua funcionando
+// (sem configuração de layout)
+\`\`\`
+
+**💡 Casos de Uso:**
+- **Sistema Antigo**: Projetos simples, prototipagem rápida
+- **Sistema Novo**: Aplicações profissionais, jogos complexos
+
+**🎯 Recomendação:**
+Use o novo sistema para novos projetos e migre gradualmente projetos existentes.
+        `
+      }
+    }
+  }
+};
+
+export const TesteSimplesPaineis: Story = {
+  name: '🧪 TESTE - Painéis Simples',
+  args: {
+    boardWidth: 8,
+    boardHeight: 6,
+    availableTiles: [
+      {
+        id: 'test-tile',
+        type: 'unit',
+        color: 0xff4444,
+        metadata: { label: '🔴 Tile Teste' }
+      },
+      {
+        id: 'test-tile-2',
+        type: 'building',
+        color: 0x44ff44,
+        metadata: { label: '🟢 Tile Verde' }
+      }
+    ],
+    // 🔧 CORREÇÃO: Configuração simplificada para teste
+    config: {
+      components: {
+        layout: { 
+          enabled: true,
+          spacing: 16,
+          enableDragging: true,
+          enableCollapsing: true,
+        },
+        inventory: {
+          enabled: true,
+          position: 'bottom-left',
+          size: 'md',
+          title: '🎒 Inventário TESTE',
+          searchEnabled: false,
+          categoriesEnabled: false,
+          draggable: true,
+          collapsible: true,
+        },
+        controlsPanel: {
+          enabled: true,
+          position: 'top-right',
+          size: 'sm',
+          title: '🎮 Controles TESTE',
+          showBasicControls: true,
+          showTeleport: false,
+          showBookmarks: false,
+          draggable: true,
+          collapsible: true,
+        }
+      }
+    }
+  },
+  render: (args) => {
+    console.log('🧪 Renderizando story de teste...', args.config);
+    
+    return (
+      <div style={{ width: '100%', height: '100vh', backgroundColor: '#1a1a1a', position: 'relative' }}>
+        <IsoBoardCanvas
+          {...args}
+          onTilePlaced={(event) => {
+            console.log('✅ Tile colocado:', event.tile.metadata?.label);
+          }}
+          onDragStart={(event) => {
+            console.log('🎯 Drag iniciado:', event.tile.metadata?.label);
+          }}
+        />
+        
+        {/* Indicador Visual de Debug */}
+        <div style={{
+          position: 'absolute',
+          top: '10px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          backgroundColor: 'rgba(0, 255, 0, 0.9)',
+          color: 'black',
+          padding: '8px 16px',
+          borderRadius: '6px',
+          fontFamily: 'system-ui, sans-serif',
+          fontSize: '12px',
+          fontWeight: 'bold',
+          zIndex: 9999,
+          border: '2px solid #00ff00',
+          boxShadow: '0 0 10px rgba(0, 255, 0, 0.5)',
+        }}>
+          🧪 TESTE PAINÉIS - Layout Ativado ✅
+        </div>
+      </div>
+    );
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: `
+### 🧪 Story de Teste para Painéis - CORRIGIDA
+
+Esta story testa o sistema de painéis sem duplicação:
+
+**✅ Funcionalidades Ativas:**
+- Layout Manager ativado
+- Inventário simples (bottom-left) - arrastável e colapsável
+- Controles básicos (top-right) - arrastável e colapsável  
+- Z-index corrigido (valores 1200+)
+- Sem painéis duplicados
+
+**🎯 O que testar:**
+1. Arraste os painéis pelos headers
+2. Collapse/expanda os painéis clicando no botão
+3. Arraste tiles do inventário para o board
+4. Use os controles básicos
+5. Verifique se não há sobreposição
+
+**🔧 Configuração:**
+\`\`\`typescript
+config: {
+  components: {
+    layout: { enabled: true },
+    inventory: { enabled: true, position: 'bottom-left' },
+    controlsPanel: { enabled: true, position: 'top-right' }
+  }
+}
+\`\`\`
         `
       }
     }

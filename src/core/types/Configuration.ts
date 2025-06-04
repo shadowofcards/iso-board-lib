@@ -261,29 +261,75 @@ export interface IsoBoardTheme {
 // ==================== CONFIGURAÇÕES DE COMPONENTE ====================
 
 export interface ComponentConfiguration {
-  // Inventory
+  // Layout Configuration
+  layout?: {
+    enabled?: boolean;
+    theme?: 'auto' | 'light' | 'dark';
+    spacing?: number;
+    zIndexBase?: number;
+    enableDragging?: boolean;
+    enableResizing?: boolean;
+    enableCollapsing?: boolean;
+    conflictResolution?: 'priority' | 'timestamp' | 'manual';
+  };
+
+  // Inventory Panel
   inventory?: {
-    position?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
-    width?: number;
-    height?: number;
-    maxItems?: number;
-    enableSearch?: boolean;
-    enableCategories?: boolean;
+    enabled?: boolean;
+    position?: 'top-left' | 'top-center' | 'top-right' | 'center-left' | 'center-center' | 'center-right' | 'bottom-left' | 'bottom-center' | 'bottom-right' | 'floating' | 'docked-left' | 'docked-right' | 'docked-bottom';
+    size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'auto' | 'custom';
+    
+    // Inventory-specific features
+    searchEnabled?: boolean;
+    categoriesEnabled?: boolean;
     showLabels?: boolean;
+    tilesPerRow?: number;
+    tileSize?: 'sm' | 'md' | 'lg';
+    sortBy?: 'name' | 'type' | 'recent';
+    maxItems?: number;
+    viewMode?: 'grid' | 'list';
+    
+    // Panel configuration
+    collapsible?: boolean;
+    draggable?: boolean;
+    priority?: 'high' | 'medium' | 'low';
+    title?: string;
+    icon?: string;
+    variant?: 'default' | 'minimal' | 'bordered' | 'floating' | 'glass';
+    
+    // Custom styling
     style?: React.CSSProperties;
     className?: string;
+    customSize?: { width: number; height: number };
+    customPosition?: { x: number; y: number };
   };
   
   // Controls Panel
   controlsPanel?: {
     enabled?: boolean;
-    position?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
-    showPosition?: boolean;
-    showZoom?: boolean;
-    showBookmarks?: boolean;
+    position?: 'top-left' | 'top-center' | 'top-right' | 'center-left' | 'center-center' | 'center-right' | 'bottom-left' | 'bottom-center' | 'bottom-right' | 'floating' | 'docked-left' | 'docked-right' | 'docked-bottom';
+    size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'auto' | 'custom';
+    
+    // Controls-specific features
+    showBasicControls?: boolean;
     showTeleport?: boolean;
+    showBookmarks?: boolean;
+    showFollowControls?: boolean;
+    enableAdvancedFeatures?: boolean;
+    
+    // Panel configuration
+    collapsible?: boolean;
+    draggable?: boolean;
+    priority?: 'high' | 'medium' | 'low';
+    title?: string;
+    icon?: string;
+    variant?: 'default' | 'minimal' | 'bordered' | 'floating' | 'glass';
+    
+    // Custom styling
     style?: React.CSSProperties;
     className?: string;
+    customSize?: { width: number; height: number };
+    customPosition?: { x: number; y: number };
   };
   
   // Tile Info Popup
@@ -295,8 +341,15 @@ export interface ComponentConfiguration {
     maxWidth?: number;
     showProperties?: boolean;
     showDescription?: boolean;
+    
+    // Popup positioning
+    position?: 'auto' | 'top' | 'bottom' | 'left' | 'right';
+    offset?: { x: number; y: number };
+    
+    // Custom styling
     style?: React.CSSProperties;
     className?: string;
+    variant?: 'default' | 'minimal' | 'bordered' | 'floating' | 'glass';
   };
   
   // Preview Overlay
@@ -307,19 +360,98 @@ export interface ComponentConfiguration {
     showValidation?: boolean;
     validColor?: string;
     invalidColor?: string;
+    showLabel?: boolean;
+    followCursor?: boolean;
+    offset?: { x: number; y: number };
+    
+    // Custom styling
     style?: React.CSSProperties;
+    variant?: 'default' | 'minimal' | 'bordered' | 'floating' | 'glass';
   };
   
-  // Realtime Display
+  // Realtime Display Panel
   realtimeDisplay?: {
     enabled?: boolean;
+    position?: 'top-left' | 'top-center' | 'top-right' | 'center-left' | 'center-center' | 'center-right' | 'bottom-left' | 'bottom-center' | 'bottom-right' | 'floating' | 'docked-left' | 'docked-right' | 'docked-bottom';
+    size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'auto' | 'custom';
+    
+    // Realtime-specific features
     updateInterval?: number;
     showFPS?: boolean;
     showTileCount?: boolean;
     showMemoryUsage?: boolean;
-    position?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+    showVisibleTiles?: boolean;
+    maxEntries?: number;
+    autoRefresh?: boolean;
+    
+    // Panel configuration
+    collapsible?: boolean;
+    draggable?: boolean;
+    priority?: 'high' | 'medium' | 'low';
+    title?: string;
+    icon?: string;
+    variant?: 'default' | 'minimal' | 'bordered' | 'floating' | 'glass';
+    
+    // Custom styling
     style?: React.CSSProperties;
     className?: string;
+    customSize?: { width: number; height: number };
+    customPosition?: { x: number; y: number };
+  };
+
+  // Drag Feedback Overlay
+  dragFeedback?: {
+    enabled?: boolean;
+    showAnimations?: boolean;
+    feedbackSize?: 'small' | 'medium' | 'large';
+    opacity?: number;
+    showBenefits?: boolean;
+    showPenalties?: boolean;
+    showSuggestions?: boolean;
+    maxSuggestions?: number;
+    
+    // Custom styling
+    style?: React.CSSProperties;
+    variant?: 'default' | 'minimal' | 'bordered' | 'floating' | 'glass';
+  };
+
+  // Custom Panels - Permite extensibilidade total
+  customPanels?: {
+    [panelId: string]: {
+      enabled?: boolean;
+      position?: 'top-left' | 'top-center' | 'top-right' | 'center-left' | 'center-center' | 'center-right' | 'bottom-left' | 'bottom-center' | 'bottom-right' | 'floating' | 'docked-left' | 'docked-right' | 'docked-bottom';
+      size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'auto' | 'custom';
+      collapsible?: boolean;
+      draggable?: boolean;
+      resizable?: boolean;
+      priority?: 'high' | 'medium' | 'low';
+      title?: string;
+      subtitle?: string;
+      icon?: string;
+      variant?: 'default' | 'minimal' | 'bordered' | 'floating' | 'glass';
+      
+      // Styling
+      style?: React.CSSProperties;
+      className?: string;
+      customSize?: { width: number; height: number };
+      customPosition?: { x: number; y: number };
+      
+      // Custom component
+      component?: React.ComponentType<any>;
+      props?: Record<string, any>;
+    };
+  };
+
+  // Global Panel Settings
+  globalSettings?: {
+    enableAnimations?: boolean;
+    animationDuration?: number;
+    borderRadius?: number;
+    shadows?: boolean;
+    backdropBlur?: boolean;
+    fontSize?: 'xs' | 'sm' | 'md' | 'lg';
+    spacing?: 'compact' | 'normal' | 'relaxed';
+    theme?: 'auto' | 'light' | 'dark';
   };
 }
 

@@ -22,6 +22,10 @@ import type { IsoBoardEventProps, PositionValidationEvent, TileProximityEvent } 
 import { DEFAULT_CONFIG, THEMES } from '../core/types/Configuration';
 import { AVAILABLE_TILES } from '../core/constants';
 import { __DEV__ } from '../core/config';
+import { LayoutProvider } from './layout/LayoutManager';
+import { TileInventoryPanel } from './panels/TileInventoryPanel';
+import { BoardControlsPanel as NewBoardControlsPanel } from './panels/BoardControlsPanel';
+import { BoardStatsPanel } from './panels/BoardStatsPanel';
 
 // ==================== INTERFACE COMPLETA ====================
 
@@ -1247,32 +1251,159 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
       ...style,
     };
     
-    const shouldShowInventory = !components.inventory;
-    const shouldShowControlsPanel = components.controlsPanel?.enabled === true;
-    const shouldShowPreview = !components.previewOverlay || (typeof components.previewOverlay === 'object' && components.previewOverlay.enabled !== false);
-    const shouldShowTileInfo = !components.tileInfoPopup || (typeof components.tileInfoPopup === 'object' && components.tileInfoPopup.enabled !== false);
-    const shouldShowRealtimeDisplay = components.realtimeDisplay?.enabled === true;
+    // ==================== COMPONENT CONFIGURATION ====================
     
+    // 🔧 CORREÇÃO: Unificar configuração de componentes
+    const finalComponents = useMemo(() => {
+      // Se config.components existir, use ele; senão use components prop
+      const fromConfig = currentConfig.components || {};
+      const fromProps = components || {};
+      
+      // Merge das duas fontes (config tem prioridade)
+      return { ...fromProps, ...fromConfig };
+    }, [currentConfig.components, components]);
+    
+    // Determinar se deve usar o novo sistema de layout
+    const useNewLayoutSystem = finalComponents.layout?.enabled === true;
+    
+    // 🧪 DEBUG: Log das configurações
+    if (__DEV__) {
+      console.log('🧪 IsoBoardCanvas Debug:', {
+        useNewLayoutSystem,
+        components,
+        finalComponents,
+        'config.components': currentConfig.components,
+        'finalComponents.layout': finalComponents.layout,
+        'finalComponents.inventory': finalComponents.inventory,
+        'finalComponents.controlsPanel': finalComponents.controlsPanel,
+      });
+    }
+    
+    // Configurações dos componentes baseadas na configuração
+    const shouldShowInventory = !finalComponents.inventory && !useNewLayoutSystem;
+    const shouldShowControlsPanel = finalComponents.controlsPanel?.enabled === true && !useNewLayoutSystem;
+    const shouldShowPreview = !finalComponents.previewOverlay || (typeof finalComponents.previewOverlay === 'object' && finalComponents.previewOverlay.enabled !== false);
+    const shouldShowTileInfo = !finalComponents.tileInfoPopup || (typeof finalComponents.tileInfoPopup === 'object' && finalComponents.tileInfoPopup.enabled !== false);
+    const shouldShowRealtimeDisplay = finalComponents.realtimeDisplay?.enabled === true;
+    
+    // 🔧 CORREÇÃO: Novos painéis extensíveis - APENAS UM DE CADA TIPO
+    const shouldShowNewInventory = useNewLayoutSystem && (finalComponents.inventory?.enabled !== false);
+    const shouldShowNewControls = useNewLayoutSystem && (finalComponents.controlsPanel?.enabled !== false);
+    const shouldShowBoardStats = useNewLayoutSystem;
+    const shouldShowCustomPanels = useNewLayoutSystem && finalComponents.customPanels;
+    
+    // 🧪 DEBUG: Log das decisões de renderização
+    if (__DEV__) {
+      console.log('🧪 Decisões de Renderização:', {
+        useNewLayoutSystem,
+        shouldShowInventory,
+        shouldShowControlsPanel,
+        shouldShowNewInventory,
+        shouldShowNewControls,
+        shouldShowBoardStats,
+        shouldShowCustomPanels,
+      });
+    }
+
     // ==================== RENDER ====================
 
-  return (
-    <div 
-      ref={mainContainerRef}
-        className={`iso-board-canvas ${className}`}
-      style={containerStyle}
-      onContextMenu={handleContextMenu}
-        tabIndex={0}
-        {...canvasProps}
-    >
-      <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }} />
+    const renderContent = () => (
+      <>
+        <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }} />
         
-        {shouldShowInventory && (
-          <IsoTileInventory 
-            tiles={availableTiles} 
+        {/* Sistema Antigo (Compatibilidade) */}
+        {!useNewLayoutSystem && (
+          <>
+            {shouldShowInventory && (
+              <IsoTileInventory 
+                tiles={availableTiles} 
+                onDragStart={handleInventoryDragStart}
+              />
+            )}
+            
+            {shouldShowControlsPanel && (
+              <NewBoardControlsPanel
+                cameraModel={cameraModel}
+                containerRef={mainContainerRef}
+                onCameraMove={clearPopupsOnCameraMove}
+              />
+            )}
+          </>
+        )}
+
+        {/* Sistema Novo de Painéis Extensíveis */}
+        {shouldShowNewInventory && (
+          <TileInventoryPanel
+            tiles={availableTiles}
             onDragStart={handleInventoryDragStart}
+            position={finalComponents.inventory?.position || 'bottom-left'}
+            size={finalComponents.inventory?.size || 'lg'}
+            searchEnabled={finalComponents.inventory?.searchEnabled !== false}
+            categoriesEnabled={finalComponents.inventory?.categoriesEnabled !== false}
+            showLabels={finalComponents.inventory?.showLabels !== false}
+            collapsible={finalComponents.inventory?.collapsible !== false}
+            draggable={finalComponents.inventory?.draggable !== false}
+            title={finalComponents.inventory?.title || '🎒 Inventário de Tiles'}
+            variant={finalComponents.inventory?.variant || 'default'}
+            {...(finalComponents.inventory || {})}
           />
         )}
+
+        {shouldShowNewControls && (
+          <NewBoardControlsPanel
+            cameraModel={cameraModel}
+            containerRef={mainContainerRef}
+            onCameraMove={clearPopupsOnCameraMove}
+            position={finalComponents.controlsPanel?.position || 'top-right'}
+            size={finalComponents.controlsPanel?.size || 'md'}
+            showBasicControls={finalComponents.controlsPanel?.showBasicControls !== false}
+            showTeleport={finalComponents.controlsPanel?.showTeleport !== false}
+            showBookmarks={finalComponents.controlsPanel?.showBookmarks !== false}
+            showFollowControls={finalComponents.controlsPanel?.showFollowControls !== false}
+            enableAdvancedFeatures={finalComponents.controlsPanel?.enableAdvancedFeatures !== false}
+            collapsible={finalComponents.controlsPanel?.collapsible !== false}
+            draggable={finalComponents.controlsPanel?.draggable !== false}
+            title={finalComponents.controlsPanel?.title || '🎮 Controles do Board'}
+            variant={finalComponents.controlsPanel?.variant || 'default'}
+            {...(finalComponents.controlsPanel || {})}
+          />
+        )}
+
+        {/* Painel de Estatísticas do Board */}
+        {shouldShowBoardStats && (
+          <BoardStatsPanel
+            boardTiles={boardManager.getState()}
+            boardWidth={boardWidth}
+            boardHeight={boardHeight}
+            position="center-right"
+            size="md"
+            showDetailedStats={true}
+            showTileList={true}
+            autoRefresh={true}
+            refreshInterval={2000}
+            collapsible={true}
+            draggable={true}
+            title="📊 Estatísticas do Board"
+            variant="default"
+          />
+        )}
+
+        {/* Painéis Customizados */}
+        {shouldShowCustomPanels && finalComponents.customPanels && Object.entries(finalComponents.customPanels).map(([panelId, panelConfig]) => {
+          if (!panelConfig.enabled || !panelConfig.component) return null;
+          
+          const PanelComponent = panelConfig.component;
+          return (
+            <PanelComponent
+              key={panelId}
+              id={panelId}
+              {...panelConfig.props}
+              {...panelConfig}
+            />
+          );
+        })}
         
+        {/* Componentes Base (sempre renderizados) */}
         {shouldShowPreview && (
           <PreviewOverlay 
             dragState={dragState}
@@ -1303,7 +1434,7 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
               />
             )}
             
-            {components.tileInfoPopup?.showOnHover !== false && (
+            {finalComponents.tileInfoPopup?.showOnHover !== false && (
               CustomTilePopup ? (
                 <CustomTilePopup 
                   key={hoveredTile?.key}
@@ -1327,32 +1458,43 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
         )}
         
         {shouldShowRealtimeDisplay && (
-      <RealtimeTileDisplay
-        visibleTiles={visibleTiles}
-        isVisible={showRealtimeDisplay}
-        onToggle={() => setShowRealtimeDisplay(!showRealtimeDisplay)}
-      />
+          <RealtimeTileDisplay
+            visibleTiles={visibleTiles}
+            isVisible={showRealtimeDisplay}
+            onToggle={() => setShowRealtimeDisplay(!showRealtimeDisplay)}
+          />
         )}
-        
-        {shouldShowControlsPanel && (
-        <BoardControlsPanel
-          cameraModel={cameraModel}
-          containerRef={mainContainerRef}
-          onCameraMove={clearPopupsOnCameraMove}
-        />
-      )}
 
-      {/* 🔧 NOVO: Overlay de feedback visual para drag */}
-      {(onTileProximity || onPositionValidation) && (
-        <DragFeedbackOverlay
-          dragPosition={dragFeedbackPosition}
-          validationResult={validationResult}
-          showAnimations={true}
-          feedbackSize="medium"
-        />
-      )}
-    </div>
-  );
+        {/* Overlay de feedback visual para drag */}
+        {(onTileProximity || onPositionValidation) && (
+          <DragFeedbackOverlay
+            dragPosition={dragFeedbackPosition}
+            validationResult={validationResult}
+            showAnimations={true}
+            feedbackSize="medium"
+          />
+        )}
+      </>
+    );
+
+    return (
+      <div 
+        ref={mainContainerRef}
+        className={`iso-board-canvas ${className}`}
+        style={containerStyle}
+        onContextMenu={handleContextMenu}
+        tabIndex={0}
+        {...canvasProps}
+      >
+        {useNewLayoutSystem ? (
+          <LayoutProvider theme={currentTheme}>
+            {renderContent()}
+          </LayoutProvider>
+        ) : (
+          renderContent()
+        )}
+      </div>
+    );
   }
 );
 

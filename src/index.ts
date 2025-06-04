@@ -102,7 +102,7 @@ export {
   useAdvancedBoardControls, 
   type Point2D, 
   type BookmarkData, 
-  type AdvancedBoardControlsOptions 
+  type AdvancedControlsConfig 
 } from './hooks/useAdvancedBoardControls';
 
 // Configurações centralizadas
