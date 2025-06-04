@@ -76,6 +76,13 @@ export interface TileClickEvent extends TileEventData {
   clickCount: number;
 }
 
+// 🔧 NOVOS EVENTOS DE POPUP CUSTOMIZÁVEL
+export interface TilePopupEvent extends TileEventData {
+  type: 'tile-popup-show' | 'tile-popup-hide';
+  popupType: 'hover' | 'click' | 'custom';
+  screenPosition: ScreenPosition;
+}
+
 // ==================== EVENTOS DE DRAG & DROP ====================
 
 export interface DragEventData extends EventContext {
@@ -258,6 +265,7 @@ export type IsoBoardEvent =
   | TileDeselectedEvent
   | TileHoverEvent
   | TileClickEvent
+  | TilePopupEvent
   
   // Drag events
   | DragStartEvent
@@ -321,7 +329,7 @@ export interface IsoBoardEventEmitter {
   getEventTypes(): IsoBoardEvent['type'][];
   
   // Métodos de conveniência para grupos de eventos
-  onTileEvent(listener: EventListener<TilePlacedEvent | TileRemovedEvent | TileSelectedEvent | TileDeselectedEvent | TileHoverEvent | TileClickEvent>): void;
+  onTileEvent(listener: EventListener<TilePlacedEvent | TileRemovedEvent | TileSelectedEvent | TileDeselectedEvent | TileHoverEvent | TileClickEvent | TilePopupEvent>): void;
   onDragEvent(listener: EventListener<DragStartEvent | DragMoveEvent | DragEndEvent>): void;
   onCameraEvent(listener: EventListener<CameraMoveEvent | CameraZoomEvent | CameraAnimationEvent>): void;
   onBoardEvent(listener: EventListener<BoardInitializedEvent | BoardClearedEvent | BoardResizedEvent | BoardStateChangedEvent>): void;
@@ -373,6 +381,7 @@ export interface IsoBoardEventProps {
   onTileDeselected?: EventListener<TileDeselectedEvent>;
   onTileHover?: EventListener<TileHoverEvent>;
   onTileClick?: EventListener<TileClickEvent>;
+  onTilePopup?: EventListener<TilePopupEvent>;
   
   onDragStart?: EventListener<DragStartEvent>;
   onDragMove?: EventListener<DragMoveEvent>;
@@ -396,7 +405,7 @@ export interface IsoBoardEventProps {
   onError?: EventListener<ErrorEvent>;
   
   // Event listeners de grupo
-  onTileEvent?: EventListener<TilePlacedEvent | TileRemovedEvent | TileSelectedEvent | TileDeselectedEvent | TileHoverEvent | TileClickEvent>;
+  onTileEvent?: EventListener<TilePlacedEvent | TileRemovedEvent | TileSelectedEvent | TileDeselectedEvent | TileHoverEvent | TileClickEvent | TilePopupEvent>;
   onDragEvent?: EventListener<DragStartEvent | DragMoveEvent | DragEndEvent>;
   onCameraEvent?: EventListener<CameraMoveEvent | CameraZoomEvent | CameraAnimationEvent>;
   onBoardEvent?: EventListener<BoardInitializedEvent | BoardClearedEvent | BoardResizedEvent | BoardStateChangedEvent>;

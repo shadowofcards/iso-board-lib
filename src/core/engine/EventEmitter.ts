@@ -13,6 +13,7 @@ import type {
   TileDeselectedEvent,
   TileHoverEvent,
   TileClickEvent,
+  TilePopupEvent,
   DragStartEvent,
   DragMoveEvent,
   DragEndEvent,
@@ -179,7 +180,7 @@ export class BoardEventEmitter implements IsoBoardEventEmitter {
 
   // ==================== MÉTODOS DE CONVENIÊNCIA ====================
 
-  onTileEvent(listener: EventListener<TilePlacedEvent | TileRemovedEvent | TileSelectedEvent | TileDeselectedEvent | TileHoverEvent | TileClickEvent>): void {
+  onTileEvent(listener: EventListener<TilePlacedEvent | TileRemovedEvent | TileSelectedEvent | TileDeselectedEvent | TileHoverEvent | TileClickEvent | TilePopupEvent>): void {
     this.on('tile-placed', listener as EventListener<TilePlacedEvent>);
     this.on('tile-removed', listener as EventListener<TileRemovedEvent>);
     this.on('tile-selected', listener as EventListener<TileSelectedEvent>);
@@ -189,6 +190,8 @@ export class BoardEventEmitter implements IsoBoardEventEmitter {
     this.on('tile-click', listener as EventListener<TileClickEvent>);
     this.on('tile-double-click', listener as EventListener<TileClickEvent>);
     this.on('tile-right-click', listener as EventListener<TileClickEvent>);
+    this.on('tile-popup-show', listener as EventListener<TilePopupEvent>);
+    this.on('tile-popup-hide', listener as EventListener<TilePopupEvent>);
   }
 
   onDragEvent(listener: EventListener<DragStartEvent | DragMoveEvent | DragEndEvent>): void {

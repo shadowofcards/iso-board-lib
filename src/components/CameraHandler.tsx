@@ -5,6 +5,7 @@ interface CameraHandlerProps {
   cameraModel: CameraModel;
   containerRef: React.RefObject<HTMLDivElement>;
   isDragActive?: boolean;
+  onCameraMove?: () => void;
 }
 
 /**
@@ -13,12 +14,60 @@ interface CameraHandlerProps {
  *  •   Panning agora divide dx / dy pelo zoom actual ⇒ movimento de mundo
  *      corresponde exactamente ao deslocamento no ecrã.
  *  •   Pinch-zoom continua inalterado.
+ *  •   🔧 NOVO: Callback onCameraMove para notificar mudanças de câmera
  */
 export const CameraHandler: React.FC<CameraHandlerProps> = ({
   cameraModel,
   containerRef,
   isDragActive = false,
+  onCameraMove,
 }) => {
+  // 🔧 CORREÇÃO DO BUG: Throttling para onCameraMove para evitar chamadas excessivas
+  const lastCameraMoveRef = React.useRef<number>(0);
+  const cameraMoveTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  const lastCameraPositionRef = React.useRef<{ x: number; y: number; zoom: number } | null>(null);
+
+  const throttledCameraMove = React.useCallback(() => {
+    const now = Date.now();
+    const currentPos = cameraModel.getPosition();
+    const currentZoom = cameraModel.getZoom();
+    
+    // Verificar se realmente houve movimento significativo
+    if (lastCameraPositionRef.current) {
+      const deltaX = Math.abs(currentPos.x - lastCameraPositionRef.current.x);
+      const deltaY = Math.abs(currentPos.y - lastCameraPositionRef.current.y);
+      const deltaZoom = Math.abs(currentZoom - lastCameraPositionRef.current.zoom);
+      
+      // Só considerar movimento significativo se:
+      // - Movimento > 10px OU zoom mudou > 0.1
+      if (deltaX < 10 && deltaY < 10 && deltaZoom < 0.1) {
+        lastCameraPositionRef.current = { x: currentPos.x, y: currentPos.y, zoom: currentZoom };
+        return; // Não é movimento significativo
+      }
+    }
+    
+    // Atualizar posição de referência
+    lastCameraPositionRef.current = { x: currentPos.x, y: currentPos.y, zoom: currentZoom };
+    
+    // Throttling: só chamar onCameraMove a cada 200ms
+    if (now - lastCameraMoveRef.current < 200) {
+      // Se já há um timeout pendente, cancelar
+      if (cameraMoveTimeoutRef.current) {
+        clearTimeout(cameraMoveTimeoutRef.current);
+      }
+      
+      // Agendar chamada para depois do throttling
+      cameraMoveTimeoutRef.current = setTimeout(() => {
+        lastCameraMoveRef.current = Date.now();
+        onCameraMove?.();
+      }, 200);
+      return;
+    }
+    
+    lastCameraMoveRef.current = now;
+    onCameraMove?.();
+  }, [onCameraMove, cameraModel]);
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -31,6 +80,7 @@ export const CameraHandler: React.FC<CameraHandlerProps> = ({
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       cameraModel.zoomBy(-e.deltaY);
+      throttledCameraMove();
     };
 
     /* -------- MOUSE PAN -------- */
@@ -48,6 +98,7 @@ export const CameraHandler: React.FC<CameraHandlerProps> = ({
       cameraModel.pan(dx, dy);
       lastX = e.clientX;
       lastY = e.clientY;
+      throttledCameraMove();
     };
 
     const onMouseUp = () => (isPanning = false);
@@ -74,12 +125,14 @@ export const CameraHandler: React.FC<CameraHandlerProps> = ({
         const newDist = Math.hypot(dx, dy);
         cameraModel.zoomBy(newDist - initialDist);
         initialDist = newDist;
+        throttledCameraMove();
       } else if (e.touches.length === 1 && isPanning && !isDragActive) {
         const dx = (lastX - e.touches[0].clientX) / cameraModel.getZoom();
         const dy = (lastY - e.touches[0].clientY) / cameraModel.getZoom();
         cameraModel.pan(dx, dy);
         lastX = e.touches[0].clientX;
         lastY = e.touches[0].clientY;
+        throttledCameraMove();
       }
     };
 
@@ -118,7 +171,7 @@ export const CameraHandler: React.FC<CameraHandlerProps> = ({
       el.removeEventListener('touchmove', onTouchMove);
       el.removeEventListener('touchend', onTouchEnd);
     };
-  }, [cameraModel, containerRef, isDragActive]);
+  }, [cameraModel, isDragActive, containerRef, throttledCameraMove]);
 
   return null;
 };

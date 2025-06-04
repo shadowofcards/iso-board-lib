@@ -27,9 +27,29 @@ export interface BookmarkData {
 }
 
 export interface AdvancedBoardControlsOptions {
+  /**
+   * Se habilita controles de teclado (WASD, setas, etc.).
+   * Padrão: true
+   */
   enableKeyboardControls?: boolean;
+
+  /**
+   * Se habilita animações suaves para teleporte/follow.
+   * Padrão: true
+   */
   enableSmoothAnimations?: boolean;
+
+  /**
+   * Ref do container onde ouvir eventos de teclado.
+   * Se null/undefined, escuta no window.
+   */
   containerRef?: React.RefObject<HTMLElement>;
+
+  /**
+   * 🔧 NOVO: Callback chamado quando a câmera se move (teclado, teleporte, etc.)
+   * Útil para limpar popups ou atualizar UI
+   */
+  onCameraMove?: () => void;
 }
 
 /* ------------------------------------------------------------------ */
@@ -41,6 +61,7 @@ export function useAdvancedBoardControls(
     enableKeyboardControls = true,
     enableSmoothAnimations = true,
     containerRef,
+    onCameraMove,
   }: AdvancedBoardControlsOptions = {},
 ) {
   /* ======================   STATE React   ======================= */
@@ -53,6 +74,32 @@ export function useAdvancedBoardControls(
   const rafKeyboardRef   = useRef<number | null>(null);
   const rafTeleportRef   = useRef<number | null>(null);
   const rafFollowRef     = useRef<number | null>(null);
+
+  // 🔧 CORREÇÃO DO BUG: Throttling para onCameraMove
+  const lastCameraMoveRef = useRef<number>(0);
+  const cameraMoveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const throttledCameraMove = useCallback(() => {
+    const now = Date.now();
+    
+    // Throttling: só chamar onCameraMove a cada 300ms para teclado (menos agressivo)
+    if (now - lastCameraMoveRef.current < 300) {
+      // Se já há um timeout pendente, cancelar
+      if (cameraMoveTimeoutRef.current) {
+        clearTimeout(cameraMoveTimeoutRef.current);
+      }
+      
+      // Agendar chamada para depois do throttling
+      cameraMoveTimeoutRef.current = setTimeout(() => {
+        lastCameraMoveRef.current = Date.now();
+        onCameraMove?.();
+      }, 300);
+      return;
+    }
+    
+    lastCameraMoveRef.current = now;
+    onCameraMove?.();
+  }, [onCameraMove]);
 
   /* =============================================================== */
   /*  Util: distinguir INPUT/TEXTAREA                                */
@@ -73,6 +120,8 @@ export function useAdvancedBoardControls(
         if (destZoom !== undefined) {
           camera.zoomBy((destZoom - camera.getZoom()) * 100);
         }
+        // 🔧 CORREÇÃO DO BUG: Notificar movimento de câmera
+        throttledCameraMove();
         return;
       }
 
@@ -96,6 +145,9 @@ export function useAdvancedBoardControls(
                    y - camera.getPosition().y);
         camera.zoomBy((z - camera.getZoom()) * 100);
 
+        // 🔧 CORREÇÃO DO BUG: Notificar movimento de câmera durante animação
+        throttledCameraMove();
+
         if (p < 1) {
           rafTeleportRef.current = requestAnimationFrame(step);
         } else {
@@ -109,7 +161,7 @@ export function useAdvancedBoardControls(
       }
       rafTeleportRef.current = requestAnimationFrame(step);
     },
-    [camera, enableSmoothAnimations],
+    [camera, enableSmoothAnimations, throttledCameraMove],
   );
 
   /* Atalhos prontos */
@@ -173,6 +225,8 @@ export function useAdvancedBoardControls(
       const dy  = (followTarget.y - cur.y) * AUTO_FOLLOW_SMOOTH_FACTOR;
       if (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1) {
         camera.pan(dx, dy);
+        // 🔧 CORREÇÃO DO BUG: Notificar movimento de câmera no follow
+        throttledCameraMove();
       }
       rafFollowRef.current = requestAnimationFrame(loop);
     };
@@ -184,7 +238,7 @@ export function useAdvancedBoardControls(
         rafFollowRef.current = null;
       }
     };
-  }, [followTarget, camera]);
+  }, [followTarget, camera, throttledCameraMove]);
 
   /* =============================================================== */
   /*  Teclado: captura + loop                                         */
@@ -245,6 +299,11 @@ export function useAdvancedBoardControls(
 
         if (dx || dy) camera.pan(dx, dy);
         if (dz)       camera.zoomBy(dz * 100);
+        
+        // 🔧 CORREÇÃO DO BUG: Notificar movimento de câmera
+        if ((dx || dy || dz) && onCameraMove) {
+          throttledCameraMove();
+        }
       }
 
       rafKeyboardRef.current = requestAnimationFrame(loop);
@@ -260,7 +319,7 @@ export function useAdvancedBoardControls(
         rafKeyboardRef.current = null;
       }
     };
-  }, [enableKeyboardControls, containerRef, centerCamera, resetZoom, camera]);
+  }, [enableKeyboardControls, containerRef, centerCamera, resetZoom, camera, throttledCameraMove]);
 
   /* =============================================================== */
   /*  Limpeza global (unmount)                                        */
@@ -269,6 +328,8 @@ export function useAdvancedBoardControls(
     if (rafTeleportRef.current !== null) cancelAnimationFrame(rafTeleportRef.current);
     if (rafFollowRef.current   !== null) cancelAnimationFrame(rafFollowRef.current);
     if (rafKeyboardRef.current !== null) cancelAnimationFrame(rafKeyboardRef.current);
+    // 🔧 CORREÇÃO: Limpar timeout pendente
+    if (cameraMoveTimeoutRef.current !== null) clearTimeout(cameraMoveTimeoutRef.current);
   }, []);
 
   /* =============================================================== */

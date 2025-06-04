@@ -38,6 +38,15 @@ export interface IsoBoardCanvasProps extends IsoBoardEventProps {
   // Controle de componentes
   components?: ComponentConfiguration;
   
+  // 🔧 NOVO: Componente de popup customizável
+  CustomTilePopup?: React.ComponentType<{
+    tile: TileData | null;
+    position: { x: number; y: number } | null;
+    onClose: () => void;
+    isHover?: boolean;
+    popupType?: 'hover' | 'click' | 'custom';
+  }>;
+  
   // Props de container
   width?: string | number;
   height?: string | number;
@@ -125,6 +134,7 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
     onTileDeselected,
     onTileHover,
     onTileClick,
+    onTilePopup,
     onDragStart,
     onDragMove,
     onDragEnd,
@@ -148,6 +158,7 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
     onPerformanceEvent,
     onEvent,
     eventConfig,
+    CustomTilePopup,
   }, ref) => {
     
     // ==================== ESTADO E REFS ====================
@@ -234,6 +245,7 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
   const [hoveredTile, setHoveredTile] = useState<{
     tile: TileData;
     position: { x: number; y: number };
+    key: string;
   } | null>(null);
 
     const [showRealtimeDisplay, setShowRealtimeDisplay] = useState(
@@ -272,6 +284,10 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
         emitter.on('tile-click', onTileClick);
         emitter.on('tile-double-click', onTileClick);
         emitter.on('tile-right-click', onTileClick);
+      }
+      if (onTilePopup) {
+        emitter.on('tile-popup-show', onTilePopup);
+        emitter.on('tile-popup-hide', onTilePopup);
       }
       if (onDragStart) emitter.on('drag-start', onDragStart);
       if (onDragMove) emitter.on('drag-move', onDragMove);
@@ -336,7 +352,7 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
       };
     }, [
       eventConfig,
-      onTilePlaced, onTileRemoved, onTileSelected, onTileDeselected, onTileHover, onTileClick,
+      onTilePlaced, onTileRemoved, onTileSelected, onTileDeselected, onTileHover, onTileClick, onTilePopup,
       onDragStart, onDragMove, onDragEnd, onCameraMove, onCameraZoom, onCameraAnimation,
       onBoardInitialized, onBoardCleared, onBoardResized, onBoardStateChanged,
       onSelectionChanged, onSelectionArea, onPerformanceUpdate, onPerformanceWarning, onError,
@@ -421,40 +437,69 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
           button: 'right',
           clickCount: 1,
         });
+
+        // 🔧 NOVO: Evento específico de popup clique direito
+        eventEmitterRef.current.emit({
+          type: 'tile-popup-show',
+          timestamp: Date.now(),
+          tile,
+          boardX: Math.floor(position.x),
+          boardY: Math.floor(position.y),
+          screenPosition: position,
+          popupType: 'click',
+        });
       }
     }, []); // 🔧 Dependências vazias - usa refs para acessar estado atual
     
     const handleTileHover = useCallback((tile: TileData | null, position: { x: number; y: number } | null) => {
-      // 🔧 CORREÇÃO: Throttling para hover events
+      // 🔧 CORREÇÃO: Throttling MUITO reduzido para responsividade máxima
       const now = Date.now();
       const lastEmit = eventThrottleRef.current.tileHover;
       const timeDiff = now - lastEmit;
       
+      // 🔧 CORREÇÃO: Throttling mínimo para responsividade - apenas 16ms (60fps)
+      const currentThrottle = dragState.isDragging ? 50 : 16; // 60fps quando não arrastando
+      
       // Debug do throttling
-      if (__DEV__ && timeDiff < throttleConfig.tileHover) {
-        console.debug(`[Throttling] Bloqueado tile-hover: ${timeDiff}ms < ${throttleConfig.tileHover}ms`);
+      if (__DEV__ && timeDiff < currentThrottle) {
+        console.debug(`[Throttling] Bloqueado tile-hover: ${timeDiff}ms < ${currentThrottle}ms (drag: ${dragState.isDragging})`);
       }
       
-      if (timeDiff < throttleConfig.tileHover) return;
+      if (timeDiff < currentThrottle) return;
       
       // Atualizar timestamp apenas quando emitir
       eventThrottleRef.current.tileHover = now;
       
       if (tile && position) {
-        setHoveredTile({ tile, position });
+        // 🔧 CORREÇÃO DO BUG DO HOVER: Criar chave única para forçar recriação do popup
+        const uniqueKey = `${tile.id}-${Math.floor(position.x)}-${Math.floor(position.y)}-${now}`;
         
-        // Emitir evento de hover
+        setHoveredTile({ tile, position, key: uniqueKey });
+        
+        // 🔧 NOVO: Emitir evento de popup personalizado
         if (eventEmitterRef.current) {
           if (__DEV__) {
             console.debug(`[TileHover] Emitindo hover-start para tile: ${tile.id} em (${Math.floor(position.x)}, ${Math.floor(position.y)})`);
           }
           
+          // Evento padrão de hover
           eventEmitterRef.current.emit({
             type: 'tile-hover-start',
             timestamp: Date.now(),
             tile,
             boardX: Math.floor(position.x),
             boardY: Math.floor(position.y),
+          });
+
+          // 🔧 NOVO: Evento específico de popup hover
+          eventEmitterRef.current.emit({
+            type: 'tile-popup-show',
+            timestamp: Date.now(),
+            tile,
+            boardX: Math.floor(position.x),
+            boardY: Math.floor(position.y),
+            screenPosition: position,
+            popupType: 'hover',
           });
         }
       } else {
@@ -464,6 +509,7 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
               console.debug(`[TileHover] Emitindo hover-end para tile: ${prev.tile.id}`);
             }
             
+            // Evento padrão de hover-end
             eventEmitterRef.current.emit({
               type: 'tile-hover-end',
               timestamp: Date.now(),
@@ -472,11 +518,22 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
               boardY: Math.floor(prev.position.y),
               hoverDuration: Date.now() - (prev as any).startTime || 0,
             });
+
+            // 🔧 NOVO: Evento específico de popup hide
+            eventEmitterRef.current.emit({
+              type: 'tile-popup-hide',
+              timestamp: Date.now(),
+              tile: prev.tile,
+              boardX: Math.floor(prev.position.x),
+              boardY: Math.floor(prev.position.y),
+              screenPosition: prev.position,
+              popupType: 'hover',
+            });
           }
           return null;
         });
       }
-    }, []);
+    }, [dragState.isDragging]); // 🔧 Adicionando dragState como dependência
 
     const handleClosePopup = useCallback(() => {
       setTileInfoPopup(null);
@@ -545,12 +602,33 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
     
     // ==================== DRAG HANDLERS - CORRIGIDO E OTIMIZADO ====================
 
+    // 🔧 CORREÇÃO DO BUG DO POPUP: Função para limpar popups quando necessário
+    const clearAllPopups = useCallback(() => {
+      setTileInfoPopup(null);
+      setHoveredTile(null);
+    }, []);
+
+    // 🔧 CORREÇÃO DO BUG: Função mais inteligente para limpar popups apenas em movimentos intencionais
+    const clearPopupsOnCameraMove = useCallback(() => {
+      // Só limpar popups se não estivermos em uma operação de drag ativa
+      if (!dragState.isDragging) {
+        clearAllPopups();
+      }
+    }, [dragState.isDragging, clearAllPopups]);
+
     const handleInventoryDragStart = useCallback(
       (tile: TileData, e: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
         if (currentConfigRef.current.interaction?.enableDragAndDrop === false) return;
         
         // 🔧 CORREÇÃO: Evitar drag-start duplicado
         if (dragEventStateRef.current.isDragStartEmitted) return;
+        
+        // 🔧 CORREÇÃO DO BUG: Limpar popups quando drag começar (mas com delay para não interferir com clique direito)
+        setTimeout(() => {
+          if (dragState.isDragging) {
+            clearAllPopups();
+          }
+        }, 50);
         
         e.preventDefault();
         const { worldX, worldY } = convertToWorldCoords(e.clientX, e.clientY);
@@ -573,7 +651,7 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
           });
         }
       },
-      [convertToWorldCoords, onDragStateStart, dragController] // 🔧 Dependências mínimas
+      [convertToWorldCoords, onDragStateStart, dragController, clearAllPopups, dragState.isDragging] // 🔧 Atualizando dependências
     );
 
     const handleBoardTileDragStart = useCallback(
@@ -582,6 +660,13 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
         
         // 🔧 CORREÇÃO: Evitar drag-start duplicado
         if (dragEventStateRef.current.isDragStartEmitted) return;
+        
+        // 🔧 CORREÇÃO DO BUG: Limpar popups quando drag começar (mas com delay para não interferir com clique direito)
+        setTimeout(() => {
+          if (dragState.isDragging) {
+            clearAllPopups();
+          }
+        }, 50);
         
         // 🔧 CORREÇÃO DO BUG: Não usar startDragOperation que limpa o board
         // Simplesmente remove o tile específico sem recriar o board
@@ -608,7 +693,7 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
           });
         }
       },
-      [boardManager, convertToWorldCoords, onDragStateStart, dragController] // 🔧 Dependências estáveis
+      [boardManager, convertToWorldCoords, onDragStateStart, dragController, clearAllPopups, dragState.isDragging] // 🔧 Atualizando dependências
     );
     
     // ==================== WINDOW EVENTS - CORRIGIDOS ====================
@@ -1100,24 +1185,46 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
         <CameraHandler 
           cameraModel={cameraModel} 
           containerRef={containerRef} 
-          isDragActive={dragState.isDragging} 
+          isDragActive={dragState.isDragging}
+          onCameraMove={clearPopupsOnCameraMove}
         />
         
         {shouldShowTileInfo && (
           <>
-      <TileInfoPopup 
-        tile={tileInfoPopup?.tile || null}
-        position={tileInfoPopup?.position || null}
-        onClose={handleClosePopup}
-      />
+            {CustomTilePopup ? (
+              <CustomTilePopup 
+                tile={tileInfoPopup?.tile || null}
+                position={tileInfoPopup?.position || null}
+                onClose={handleClosePopup}
+                popupType="click"
+              />
+            ) : (
+              <TileInfoPopup 
+                tile={tileInfoPopup?.tile || null}
+                position={tileInfoPopup?.position || null}
+                onClose={handleClosePopup}
+              />
+            )}
             
             {components.tileInfoPopup?.showOnHover !== false && (
-      <TileInfoPopup 
-        tile={hoveredTile?.tile || null}
-        position={hoveredTile?.position || null}
-        onClose={() => setHoveredTile(null)}
-        isHover={true}
-      />
+              CustomTilePopup ? (
+                <CustomTilePopup 
+                  key={hoveredTile?.key}
+                  tile={hoveredTile?.tile || null}
+                  position={hoveredTile?.position || null}
+                  onClose={() => setHoveredTile(null)}
+                  isHover={true}
+                  popupType="hover"
+                />
+              ) : (
+                <TileInfoPopup 
+                  key={hoveredTile?.key}
+                  tile={hoveredTile?.tile || null}
+                  position={hoveredTile?.position || null}
+                  onClose={() => setHoveredTile(null)}
+                  isHover={true}
+                />
+              )
             )}
           </>
         )}
@@ -1134,6 +1241,7 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
         <BoardControlsPanel
           cameraModel={cameraModel}
           containerRef={mainContainerRef}
+          onCameraMove={clearPopupsOnCameraMove}
         />
       )}
     </div>

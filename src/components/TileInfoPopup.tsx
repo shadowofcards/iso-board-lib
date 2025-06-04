@@ -1,5 +1,6 @@
 import React from 'react';
 import type { TileData } from '../core/models/Tile';
+import { __DEV__ } from '../core/config';
 
 interface TileInfoPopupProps {
   tile: TileData | null;
@@ -18,6 +19,73 @@ export const TileInfoPopup: React.FC<TileInfoPopupProps> = ({
   onClose,
   isHover = false,
 }) => {
+  // 🔧 CORREÇÃO DO BUG: Ref para rastrear posição anterior e timestamp de criação
+  const previousPositionRef = React.useRef<{ x: number; y: number } | null>(null);
+  const creationTimeRef = React.useRef<number>(Date.now());
+  const previousTileRef = React.useRef<TileData | null>(null); // 🔧 NOVA REF: Para detectar mudança de tile
+
+  // 🔧 CORREÇÃO DO BUG DO HOVER: Detectar mudança de tile e resetar posição
+  React.useEffect(() => {
+    if (tile && previousTileRef.current) {
+      // Se o tile mudou, resetar posição anterior para evitar fechamento indevido
+      if (tile.id !== previousTileRef.current.id) {
+        if (__DEV__) {
+          console.debug(`[TileInfoPopup] Tile mudou: ${previousTileRef.current.id} -> ${tile.id}, resetando posição`);
+        }
+        previousPositionRef.current = null;
+        creationTimeRef.current = Date.now();
+      }
+    }
+    
+    if (tile) {
+      previousTileRef.current = tile;
+    }
+  }, [tile]);
+
+  // 🔧 CORREÇÃO DO BUG: Fechar popup se posição mudou significativamente (board movement)
+  // Mas só depois de um tempo mínimo para não fechar imediatamente
+  React.useEffect(() => {
+    // Resetar timestamp quando o popup é criado/atualizado
+    if (tile && position) {
+      if (!previousPositionRef.current) {
+        creationTimeRef.current = Date.now();
+        previousPositionRef.current = { ...position };
+        return;
+      }
+
+      // Só verificar movimento depois de 500ms da criação do popup
+      const timeSinceCreation = Date.now() - creationTimeRef.current;
+      if (timeSinceCreation < 500) {
+        previousPositionRef.current = { ...position };
+        return;
+      }
+
+      const deltaX = Math.abs(position.x - previousPositionRef.current.x);
+      const deltaY = Math.abs(position.y - previousPositionRef.current.y);
+      
+      // 🔧 CORREÇÃO: Para hover, usar threshold ainda maior para evitar fechamentos acidentais
+      const threshold = isHover ? 150 : 100;
+      if (deltaX > threshold || deltaY > threshold) {
+        if (__DEV__) {
+          console.debug(`[TileInfoPopup] Posição mudou muito: delta(${deltaX}, ${deltaY}) > ${threshold}, fechando popup`);
+        }
+        onClose();
+        return;
+      }
+      
+      previousPositionRef.current = { ...position };
+    }
+  }, [tile, position, onClose, isHover]);
+
+  // 🔧 CORREÇÃO: Reset refs quando popup é fechado
+  React.useEffect(() => {
+    if (!tile || !position) {
+      previousPositionRef.current = null;
+      previousTileRef.current = null;
+      creationTimeRef.current = Date.now();
+    }
+  }, [tile, position]);
+
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !isHover) {

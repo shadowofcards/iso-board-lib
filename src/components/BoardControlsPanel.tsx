@@ -8,6 +8,7 @@ interface Props {
   cameraModel : Camera;
   containerRef: React.RefObject<HTMLElement>;
   className?  : string;
+  onCameraMove?: () => void;
 }
 
 /** Painel flutuante demonstrando as funções do hook. */
@@ -15,6 +16,7 @@ export const BoardControlsPanel: React.FC<Props> = ({
   cameraModel,
   containerRef,
   className = '',
+  onCameraMove,
 }) => {
   const [bmName, setBmName] = useState('');
   const [tpX, setTpX] = useState('');
@@ -25,6 +27,7 @@ export const BoardControlsPanel: React.FC<Props> = ({
     enableKeyboardControls: true,
     enableSmoothAnimations: true,
     containerRef,
+    onCameraMove,
   });
 
   const addBm = () => {
