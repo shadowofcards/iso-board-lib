@@ -7,16 +7,18 @@ import PreviewOverlay from './PreviewOverlay';
 import TileInfoPopup from './TileInfoPopup';
 import RealtimeTileDisplay from './RealtimeTileDisplay';
 import BoardControlsPanel from './BoardControlsPanel';
+import DragFeedbackOverlay from './DragFeedbackOverlay';
 import { useBoardController } from '../hooks/useBoardController';
 import { useDragTile } from '../hooks/useDragTile';
 import { BoardEventEmitter } from '../core/engine/EventEmitter';
+import { findNearbyTiles, type TilePosition } from '../core/math/proximityUtils';
 import type { TileData } from '../core/models/Tile';
 import type { 
   CompleteIsoBoardConfiguration,
   IsoBoardTheme,
   ComponentConfiguration 
 } from '../core/types/Configuration';
-import type { IsoBoardEventProps } from '../core/types/Events';
+import type { IsoBoardEventProps, PositionValidationEvent, TileProximityEvent } from '../core/types/Events';
 import { DEFAULT_CONFIG, THEMES } from '../core/types/Configuration';
 import { AVAILABLE_TILES } from '../core/constants';
 import { __DEV__ } from '../core/config';
@@ -61,6 +63,10 @@ export interface IsoBoardCanvasProps extends IsoBoardEventProps {
   
   // Ref para acesso à API
   ref?: React.Ref<IsoBoardCanvasAPI>;
+  
+  // 🔧 NOVOS: Props de proximidade e validação
+  onTileProximity?: (event: TileProximityEvent) => void;
+  onPositionValidation?: (event: PositionValidationEvent) => void;
 }
 
 // ==================== API PÚBLICA ====================
@@ -138,6 +144,9 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
     onDragStart,
     onDragMove,
     onDragEnd,
+    // 🔧 NOVOS: Props de proximidade e validação
+    onTileProximity,
+    onPositionValidation,
     onCameraMove,
     onCameraZoom,
     onCameraAnimation,
@@ -181,6 +190,11 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
       dragMove: 0,
       tileHover: 0,
     });
+
+    // 🔧 NOVOS: Estado e refs para sistema de proximidade e validação
+    const [validationResult, setValidationResult] = useState<PositionValidationEvent['validationResult'] | null>(null);
+    const [dragFeedbackPosition, setDragFeedbackPosition] = useState<{ x: number; y: number } | null>(null);
+    const lastProximityCheckRef = useRef<{ position: { x: number; y: number }; tiles: string[] } | null>(null);
     
     // ==================== CONFIGURAÇÃO DINÂMICA ====================
     
@@ -263,6 +277,32 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
       
     const { dragState, onDragStart: onDragStateStart, onDragMove: onDragStateMove, onDragEnd: onDragStateEnd } = useDragTile();
     
+    // ==================== DRAG CONTROLLER INTEGRATION ====================
+    
+    // Conectar DragController ao EventEmitter para emitir eventos automaticamente
+    useEffect(() => {
+      if (!dragController || !eventEmitterRef.current) return;
+      
+      const handleDrop = (x: number, y: number, tile: TileData) => {
+        if (eventEmitterRef.current) {
+          if (__DEV__) {
+            console.debug(`[DragController->EventEmitter] Emitindo tile-placed: ${tile.id} em (${x}, ${y})`);
+          }
+          
+          eventEmitterRef.current.emitTilePlaced({
+            tile,
+            boardX: x,
+            boardY: y,
+            isReplace: false,
+          });
+        }
+      };
+      
+      dragController.onDrop(handleDrop);
+      
+      // Cleanup não é necessário pois DragController é recriado quando muda
+    }, [dragController]);
+    
     // ==================== EVENT EMITTER SETUP ====================
     
     useEffect(() => {
@@ -288,6 +328,15 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
       if (onTilePopup) {
         emitter.on('tile-popup-show', onTilePopup);
         emitter.on('tile-popup-hide', onTilePopup);
+      }
+      // 🔧 NOVOS: Proximity & Validation listeners
+      if (onTileProximity) {
+        emitter.on('tile-proximity-detected', onTileProximity);
+        emitter.on('tile-proximity-lost', onTileProximity);
+      }
+      if (onPositionValidation) {
+        emitter.on('position-validation-request', onPositionValidation);
+        emitter.on('position-validation-response', onPositionValidation);
       }
       if (onDragStart) emitter.on('drag-start', onDragStart);
       if (onDragMove) emitter.on('drag-move', onDragMove);
@@ -397,17 +446,6 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
         performanceWarning: eventOpt?.throttling?.performanceWarning ?? 5000,
         boardStateChange: eventOpt?.throttling?.boardStateChange ?? 200,
         visibleTilesUpdate: eventOpt?.throttling?.visibleTilesUpdate ?? 100,
-      };
-    }, [currentConfig.performance?.eventOptimization]);
-    
-    // 🔧 NOVO: Configuração de monitoramento dinâmica
-    const monitoringConfig = useMemo(() => {
-      const eventOpt = currentConfig.performance?.eventOptimization;
-      return {
-        enableEventMetrics: eventOpt?.monitoring?.enableEventMetrics ?? false,
-        enableThrottleLogging: eventOpt?.monitoring?.enableThrottleLogging ?? (__DEV__ && false),
-        enablePerformanceAlerts: eventOpt?.monitoring?.enablePerformanceAlerts ?? true,
-        maxEventQueueSize: eventOpt?.monitoring?.maxEventQueueSize ?? 1000,
       };
     }, [currentConfig.performance?.eventOptimization]);
     
@@ -543,10 +581,16 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
 
     const convertToWorldCoords = useCallback((clientX: number, clientY: number) => {
       if (!phaserGameRef.current || !containerRef.current) {
+        if (__DEV__) {
+          console.warn('[convertToWorldCoords] Phaser game ou container não disponível');
+        }
         return { worldX: clientX, worldY: clientY };
       }
       const scene = phaserGameRef.current.scene.getScene('IsoScene') as any;
       if (!scene || !scene.cameras) {
+        if (__DEV__) {
+          console.warn('[convertToWorldCoords] Scene ou cameras não disponível');
+        }
         return { worldX: clientX, worldY: clientY };
       }
       const cam = scene.cameras.main;
@@ -556,6 +600,11 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
       const localY = clientY - rect.top;
 
       const { x: worldX, y: worldY } = cam.getWorldPoint(localX, localY);
+      
+      if (__DEV__) {
+        console.debug(`[convertToWorldCoords] client(${clientX}, ${clientY}) -> local(${localX.toFixed(1)}, ${localY.toFixed(1)}) -> world(${worldX.toFixed(1)}, ${worldY.toFixed(1)})`);
+      }
+      
       return { worldX, worldY };
     }, []);
     
@@ -566,136 +615,201 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
       const scene = phaserGameRef.current.scene.getScene('IsoScene') as any;
       if (!scene) return null;
       
-      // Obter offsets atuais da scene
-      const cam = scene.cameras.main;
-      const zoom = cam.zoom;
-      
-      // Calcular offsets dinamicamente (similar ao IsoScene)
-      const offsetX = (cam.width * 0.5) / zoom;
-      const offsetY = (cam.height * 0.5) / zoom;
-      
-      // Converter para coordenadas locais do board
-      const localX = worldX - offsetX;
-      const localY = worldY - offsetY;
-      
-      // Aproximação para tile usando a lógica isométrica
-      // Esta é uma simplificação - no IsoScene usa screenToTileWithSnap
-      const tileSize = 128; // TILE_SIZE
-      const tileHeight = 64; // TILE_HEIGHT
-      
-      // Conversão isométrica aproximada
-      const tempX = (localX / (tileSize / 2)) + (localY / (tileHeight / 2));
-      const tempY = (localY / (tileHeight / 2)) - (localX / (tileSize / 2));
-      
-      const tileX = Math.floor(tempX / 2);
-      const tileY = Math.floor(tempY / 2);
-      
-      // Verificar se está dentro dos bounds do board
-      const isValid = tileX >= 0 && tileX < boardWidth && tileY >= 0 && tileY < boardHeight;
-      
-      if (__DEV__) {
-        console.debug(`[ValidPosition] world(${worldX.toFixed(1)}, ${worldY.toFixed(1)}) -> local(${localX.toFixed(1)}, ${localY.toFixed(1)}) -> tile(${tileX}, ${tileY}) valid=${isValid}`);
+      // 🔧 CORREÇÃO: Usar a função REAL do IsoScene em vez de aproximação
+      if (scene.screenToTileWithSnap) {
+        const result = scene.screenToTileWithSnap(worldX, worldY);
+        if (result) {
+          const isValid = result.tileX >= 0 && result.tileX < boardWidth && 
+                         result.tileY >= 0 && result.tileY < boardHeight;
+          
+          if (__DEV__) {
+            console.debug(`[ValidPosition] world(${worldX.toFixed(1)}, ${worldY.toFixed(1)}) -> tile(${result.tileX}, ${result.tileY}) valid=${isValid}`);
+          }
+          
+          return { tileX: result.tileX, tileY: result.tileY, isValid };
+        }
       }
       
-      return { tileX, tileY, isValid };
+      // Fallback: se não conseguir usar a função do scene, retornar inválido
+      if (__DEV__) {
+        console.warn(`[ValidPosition] Scene não disponível ou sem screenToTileWithSnap`);
+      }
+      
+      return { tileX: -1, tileY: -1, isValid: false };
     }, [boardWidth, boardHeight]);
     
-    // ==================== DRAG HANDLERS - CORRIGIDO E OTIMIZADO ====================
+    // ==================== DRAG HANDLERS - CORRIGIDOS ====================
 
     // 🔧 CORREÇÃO DO BUG DO POPUP: Função para limpar popups quando necessário
+    const popupTimeout = useRef<NodeJS.Timeout | null>(null);
     const clearAllPopups = useCallback(() => {
       setTileInfoPopup(null);
-      setHoveredTile(null);
+      if (popupTimeout.current) {
+        clearTimeout(popupTimeout.current);
+        popupTimeout.current = null;
+      }
     }, []);
 
-    // 🔧 CORREÇÃO DO BUG: Função mais inteligente para limpar popups apenas em movimentos intencionais
-    const clearPopupsOnCameraMove = useCallback(() => {
-      // Só limpar popups se não estivermos em uma operação de drag ativa
-      if (!dragState.isDragging) {
-        clearAllPopups();
+    // 🔧 NOVOS: Funções para sistema de proximidade e validação
+    const handleProximityCheck = useCallback((
+      draggedTile: TileData,
+      targetPosition: { x: number; y: number },
+      screenPosition: { x: number; y: number }
+    ) => {
+      // 🔧 CORREÇÃO: Só executar se há listeners de proximidade/validação
+      if (!eventEmitterRef.current || (!onTileProximity && !onPositionValidation)) {
+        return;
       }
-    }, [dragState.isDragging, clearAllPopups]);
 
-    const handleInventoryDragStart = useCallback(
-      (tile: TileData, e: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
-        if (currentConfigRef.current.interaction?.enableDragAndDrop === false) return;
-        
-        // 🔧 CORREÇÃO: Evitar drag-start duplicado
-        if (dragEventStateRef.current.isDragStartEmitted) return;
-        
-        // 🔧 CORREÇÃO DO BUG: Limpar popups quando drag começar (mas com delay para não interferir com clique direito)
-        setTimeout(() => {
-          if (dragState.isDragging) {
-            clearAllPopups();
-          }
-        }, 50);
-        
-        e.preventDefault();
-        const { worldX, worldY } = convertToWorldCoords(e.clientX, e.clientY);
-        onDragStateStart(tile, { x: e.clientX, y: e.clientY });
-        dragController.startDrag(tile, { x: worldX, y: worldY });
-        
-        // Marcar drag como iniciado e fonte
+      // Throttling para evitar muitas verificações
+      const now = Date.now();
+      if (now - eventThrottleRef.current.dragMove < 100) return;
+      eventThrottleRef.current.dragMove = now;
+
+      // Obter todos os tiles do board
+      const allTiles: TilePosition[] = boardManager.getState().map(t => ({
+        x: t.x,
+        y: t.y,
+        tile: t.tile,
+      }));
+
+      // Encontrar tiles próximos
+      const nearbyTiles = findNearbyTiles(targetPosition, allTiles, 3);
+
+      // Verificar se houve mudança significativa
+      const currentTileIds = nearbyTiles.map(t => t.tile.id).sort();
+      const lastCheck = lastProximityCheckRef.current;
+      
+      if (lastCheck && 
+          Math.abs(lastCheck.position.x - targetPosition.x) < 1 &&
+          Math.abs(lastCheck.position.y - targetPosition.y) < 1 &&
+          JSON.stringify(lastCheck.tiles) === JSON.stringify(currentTileIds)) {
+        return; // Sem mudanças significativas
+      }
+
+      lastProximityCheckRef.current = {
+        position: targetPosition,
+        tiles: currentTileIds,
+      };
+
+      // Emitir evento de proximidade se há tiles próximos
+      if (nearbyTiles.length > 0 && onTileProximity) {
+        eventEmitterRef.current.emitTileProximity({
+          draggedTile,
+          targetPosition,
+          nearbyTiles,
+          radius: 3,
+          proximityType: nearbyTiles.some(t => t.distance <= 1.5) ? 'adjacent' : 'nearby',
+        });
+      }
+
+      // Solicitar validação da posição (sistema externo deve responder)
+      if (onPositionValidation) {
+        eventEmitterRef.current.emitPositionValidationRequest({
+          draggedTile,
+          targetPosition,
+          nearbyTiles: nearbyTiles.map(t => ({
+            tile: t.tile,
+            position: t.position,
+            distance: t.distance,
+          })),
+        });
+      }
+      
+      // Atualizar posição de feedback para mostrar que está processando
+      setDragFeedbackPosition(screenPosition);
+    }, [boardManager, onTileProximity, onPositionValidation]);
+
+    const clearValidationFeedback = useCallback(() => {
+      setValidationResult(null);
+      setDragFeedbackPosition(null);
+      lastProximityCheckRef.current = null;
+    }, []);
+
+    // ==================== DRAG HANDLERS - CORRIGIDOS ====================
+
+    const handleInventoryDragStart = useCallback((tile: TileData, e: React.MouseEvent<HTMLDivElement>) => {
+      if (__DEV__) {
+        console.debug(`[InventoryDrag] Iniciando drag de: ${tile.id}`);
+      }
+      
+      const position = { x: e.clientX, y: e.clientY };
+      const { worldX, worldY } = convertToWorldCoords(e.clientX, e.clientY);
+      
+      // 🔧 CORREÇÃO: Iniciar o drag no DragController
+      dragController.startDrag(tile, { x: worldX, y: worldY });
+      
+      // Iniciar o drag state do React
+      onDragStateStart(tile, position);
+      
+      // 🔧 CORREÇÃO: Verificar se não foi emitido ainda para evitar duplicatas
+      if (!dragEventStateRef.current.isDragStartEmitted) {
         dragEventStateRef.current.isDragStartEmitted = true;
         dragEventStateRef.current.dragSource = 'inventory';
-        dragEventStateRef.current.lastValidPosition = null;
         
-        // Emitir evento via EventEmitter
         if (eventEmitterRef.current) {
           eventEmitterRef.current.emitDragStart({
             tile,
-            startPosition: { x: e.clientX, y: e.clientY },
-            currentPosition: { x: e.clientX, y: e.clientY },
+            startPosition: position,
+            currentPosition: position,
             dragDistance: 0,
             source: 'inventory',
           });
         }
-      },
-      [convertToWorldCoords, onDragStateStart, dragController, clearAllPopups, dragState.isDragging] // 🔧 Atualizando dependências
-    );
+      }
+    }, [onDragStateStart, dragController, convertToWorldCoords]);
 
-    const handleBoardTileDragStart = useCallback(
-      (tile: TileData, boardX: number, boardY: number, e: { clientX: number; clientY: number }) => {
-        if (currentConfigRef.current.interaction?.enableDragAndDrop === false) return;
-        
-        // 🔧 CORREÇÃO: Evitar drag-start duplicado
-        if (dragEventStateRef.current.isDragStartEmitted) return;
-        
-        // 🔧 CORREÇÃO DO BUG: Limpar popups quando drag começar (mas com delay para não interferir com clique direito)
-        setTimeout(() => {
-          if (dragState.isDragging) {
-            clearAllPopups();
-          }
-        }, 50);
-        
-        // 🔧 CORREÇÃO DO BUG: Não usar startDragOperation que limpa o board
-        // Simplesmente remove o tile específico sem recriar o board
-        boardManager.removeTile(boardX, boardY);
-        
-        const { worldX, worldY } = convertToWorldCoords(e.clientX, e.clientY);
-        onDragStateStart(tile, { x: e.clientX, y: e.clientY });
-        dragController.startDrag(tile, { x: worldX, y: worldY });
-        
-        // Marcar drag como iniciado e fonte
+    const handleBoardTileDragStart = useCallback((tile: TileData, boardX: number, boardY: number, e: { clientX: number; clientY: number }) => {
+      if (__DEV__) {
+        console.debug(`[BoardDrag] Iniciando drag de tile do board: ${tile.id} em (${boardX}, ${boardY})`);
+      }
+      
+      const position = { x: e.clientX, y: e.clientY };
+      const { worldX, worldY } = convertToWorldCoords(e.clientX, e.clientY);
+      
+      // 🔧 CORREÇÃO: Remover o tile da posição original para evitar duplicação
+      const wasRemoved = boardManager.removeTile(boardX, boardY);
+      if (!wasRemoved) {
+        if (__DEV__) {
+          console.warn(`[BoardDrag] Falha ao remover tile da posição original (${boardX}, ${boardY})`);
+        }
+        return; // Abortar se não conseguiu remover
+      }
+      
+      // 🔧 CORREÇÃO: Armazenar posição original para caso de cancelamento
+      dragEventStateRef.current.lastValidPosition = { x: boardX, y: boardY };
+      
+      // 🔧 CORREÇÃO: Iniciar o drag no DragController com posição original
+      dragController.startDrag(tile, { x: worldX, y: worldY }, { x: boardX, y: boardY });
+      
+      // Iniciar o drag state do React
+      onDragStateStart(tile, position);
+      
+      if (!dragEventStateRef.current.isDragStartEmitted) {
         dragEventStateRef.current.isDragStartEmitted = true;
         dragEventStateRef.current.dragSource = 'board';
-        dragEventStateRef.current.lastValidPosition = null;
         
-        // Emitir evento via EventEmitter
         if (eventEmitterRef.current) {
           eventEmitterRef.current.emitDragStart({
             tile,
-            startPosition: { x: e.clientX, y: e.clientY },
-            currentPosition: { x: e.clientX, y: e.clientY },
+            startPosition: position,
+            currentPosition: position,
             dragDistance: 0,
             source: 'board',
-            sourceBoardPosition: { x: boardX, y: boardY },
+            sourceBoardPosition: {
+              x: boardX,
+              y: boardY,
+            },
           });
         }
-      },
-      [boardManager, convertToWorldCoords, onDragStateStart, dragController, clearAllPopups, dragState.isDragging] // 🔧 Atualizando dependências
-    );
-    
+      }
+    }, [onDragStateStart, dragController, convertToWorldCoords, boardManager]);
+
+    const clearPopupsOnCameraMove = useCallback(() => {
+      clearAllPopups();
+      setHoveredTile(null);
+    }, [clearAllPopups]);
+
     // ==================== WINDOW EVENTS - CORRIGIDOS ====================
 
     const handleWindowMouseMove = useCallback(
@@ -706,53 +820,27 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
           onDragStateMove({ x: e.clientX, y: e.clientY });
           dragController.updateDrag({ x: worldX, y: worldY });
           
-          // 🔧 CORREÇÃO: Throttling inteligente para drag-move
+          // 🔧 CORREÇÃO: Throttling simplificado apenas para eventos, não para funcionalidade básica
           const now = Date.now();
           const lastEmit = eventThrottleRef.current.dragMove;
-          const timeDiff = now - lastEmit;
+          const shouldEmitEvent = (now - lastEmit) >= throttleConfig.dragMove;
           
-          // Debug do throttling (apenas se habilitado na configuração)
-          if (timeDiff < throttleConfig.dragMove) {
-            if (monitoringConfig.enableThrottleLogging) {
-              console.debug(`[THROTTLING] Bloqueando drag-move: ${timeDiff}ms < ${throttleConfig.dragMove}ms`);
-            }
-            return;
-          }
-          
-          // 🔧 CORREÇÃO: Verificar se está em posição válida antes de emitir
+          // Verificar posição válida
           const validPosition = checkValidDropPosition(worldX, worldY);
           
-          // Só emitir se estiver em posição válida OU se mudou significativamente de válida para inválida
-          const lastValid = dragEventStateRef.current.lastValidPosition;
-          const shouldEmit = validPosition?.isValid || 
-                           (lastValid && !validPosition?.isValid) || 
-                           !lastValid;
-          
-          if (!shouldEmit) {
-            if (monitoringConfig.enableThrottleLogging) {
-              console.debug(`[VALIDATION] Posição inválida ignorada: tile(${validPosition?.tileX}, ${validPosition?.tileY})`);
-            }
-            return;
+          // 🔧 CORREÇÃO: Sempre chamar proximidade se há listeners, não depender de throttling
+          if (validPosition?.isValid && (onTileProximity || onPositionValidation)) {
+            handleProximityCheck(dragState.tile!, {
+              x: validPosition.tileX,
+              y: validPosition.tileY,
+            }, { x: e.clientX, y: e.clientY });
           }
           
-          // Atualizar timestamp do throttling APENAS quando emitir
-          eventThrottleRef.current.dragMove = now;
-          
-          if (eventEmitterRef.current && dragState.tile && dragState.ghostPos) {
+          // Emitir evento apenas se throttling permitir
+          if (shouldEmitEvent && eventEmitterRef.current && dragState.tile && dragState.ghostPos) {
+            eventThrottleRef.current.dragMove = now;
+            
             const startPos = dragState.ghostPos;
-            
-            // Atualizar última posição válida
-            if (validPosition?.isValid) {
-              dragEventStateRef.current.lastValidPosition = {
-                x: validPosition.tileX,
-                y: validPosition.tileY,
-              };
-            }
-            
-            // Debug de emissão (apenas se habilitado)
-            if (monitoringConfig.enableThrottleLogging) {
-              console.debug(`[DRAG-MOVE] Emitindo: isValid=${validPosition?.isValid}, tile(${validPosition?.tileX}, ${validPosition?.tileY})`);
-            }
             
             eventEmitterRef.current.emitDragMove({
               tile: dragState.tile,
@@ -772,20 +860,37 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
           }
         }
       },
-      [dragController, dragState, onDragStateMove, convertToWorldCoords, checkValidDropPosition]
+      [dragController, dragState, onDragStateMove, convertToWorldCoords, checkValidDropPosition, handleProximityCheck, throttleConfig.dragMove, onTileProximity, onPositionValidation]
     );
 
     const handleWindowMouseUp = useCallback(
       (e: MouseEvent) => {
         if (dragState.isDragging && dragEventStateRef.current.isDragStartEmitted) {
-          const { worldX, worldY } = convertToWorldCoords(e.clientX, e.clientY);
-          onDragStateEnd();
+          if (__DEV__) {
+            console.debug(`[DragEnd] Iniciando processo de drop...`);
+          }
           
+          const { worldX, worldY } = convertToWorldCoords(e.clientX, e.clientY);
+          
+          if (__DEV__) {
+            console.debug(`[DragEnd] Coordenadas: client(${e.clientX}, ${e.clientY}) -> world(${worldX.toFixed(1)}, ${worldY.toFixed(1)})`);
+          }
+          
+          // 🔧 CORREÇÃO: Usar apenas o DragController original para colocação
           const success = dragController.endDrag({ x: worldX, y: worldY });
           
-          // 🔧 CORREÇÃO: Só emitir drag-end se drag-start foi emitido e ainda não foi finalizado
+          if (__DEV__) {
+            console.debug(`[DragEnd] DragController.endDrag retornou: ${success}`);
+          }
+          
+          // Finalizar o drag state
+          onDragStateEnd();
+          
+          // Emitir evento de drag-end
           if (eventEmitterRef.current && dragState.tile && dragState.ghostPos) {
             const startPos = dragState.ghostPos;
+            
+            // Para obter a posição final, usar o mesmo método do DragController
             const validPosition = checkValidDropPosition(worldX, worldY);
             
             if (__DEV__) {
@@ -808,19 +913,8 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
               } : undefined,
             });
             
-            // 🔧 NOVO: Emitir tile-placed quando tile é efetivamente colocado
-            if (success && validPosition?.isValid) {
-              if (__DEV__) {
-                console.debug(`[TilePlaced] Emitindo tile-placed para tile(${validPosition.tileX}, ${validPosition.tileY})`);
-              }
-              
-              eventEmitterRef.current.emitTilePlaced({
-                tile: dragState.tile,
-                boardX: validPosition.tileX,
-                boardY: validPosition.tileY,
-                isReplace: false,
-              });
-            }
+            // 🔧 NOTA: tile-placed é emitido automaticamente pelo DragController
+            // Não precisamos emitir aqui para evitar duplicação
           }
           
           // 🔧 CORREÇÃO: Resetar estado de drag para evitar duplicatas
@@ -828,9 +922,12 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
           dragEventStateRef.current.dragSource = null;
           dragEventStateRef.current.lastValidPosition = null;
           dragEventStateRef.current.lastMoveEmitTime = 0;
+          
+          // 🔧 NOVO: Limpar feedback de validação
+          clearValidationFeedback();
         }
       },
-      [dragController, dragState, onDragStateEnd, convertToWorldCoords, checkValidDropPosition]
+      [dragController, dragState, onDragStateEnd, convertToWorldCoords, checkValidDropPosition, clearValidationFeedback]
     );
       
     // ==================== EFFECTS - CORRIGIDOS ====================
@@ -1242,6 +1339,16 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
           cameraModel={cameraModel}
           containerRef={mainContainerRef}
           onCameraMove={clearPopupsOnCameraMove}
+        />
+      )}
+
+      {/* 🔧 NOVO: Overlay de feedback visual para drag */}
+      {(onTileProximity || onPositionValidation) && (
+        <DragFeedbackOverlay
+          dragPosition={dragFeedbackPosition}
+          validationResult={validationResult}
+          showAnimations={true}
+          feedbackSize="medium"
         />
       )}
     </div>

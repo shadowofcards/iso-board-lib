@@ -769,4 +769,24 @@ export default class IsoScene extends Phaser.Scene {
   public forceRedrawPublic(): void {
     this.forceRedraw = true;
   }
+
+  /**
+   * Método público para converter coordenadas de tela para posições de tile com snap
+   * Usado pelo IsoBoardCanvas para validação de drop durante drag and drop
+   */
+  public screenToTileWithSnap(worldX: number, worldY: number): { tileX: number; tileY: number } | null {
+    const cam = this.cameras.main;
+    const { offsetX, offsetY } = calculateDynamicIsoOffsets(
+      cam.width, cam.height, 0, 0, cam.zoom
+    );
+    
+    return screenToTileWithSnap(
+      worldX - offsetX, 
+      worldY - offsetY,
+      TILE_SIZE, 
+      TILE_HEIGHT,
+      this.boardConfig.width, 
+      this.boardConfig.height
+    );
+  }
 }

@@ -1,1243 +1,459 @@
-import React, { useState, useCallback } from 'react';
-import Phaser from 'phaser';
-// Ensure every Scene instance has an EventEmitter so `scene.events.on(...)` won't be undefined
-;(Phaser.Scene.prototype as any).events = new Phaser.Events.EventEmitter();
-
+import React from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
 import { IsoBoardCanvas } from './IsoBoardCanvas';
-import type { CompleteIsoBoardConfiguration } from '../core/types/Configuration';
+import type { TileData } from '../core/models/Tile';
 
 const meta: Meta<typeof IsoBoardCanvas> = {
-  title: 'IsoBoardLib/IsoBoardCanvas',
+  title: 'IsoBoardLib/Exemplos de Jogos',
   component: IsoBoardCanvas,
-  tags: ['autodocs'],
-  argTypes: {
-    boardWidth: {
-      control: { type: 'number', min: 10, max: 2000, step: 1 },
-      description: 'Largura do tabuleiro em tiles',
-      table: { defaultValue: { summary: '20' } },
-    },
-    boardHeight: {
-      control: { type: 'number', min: 10, max: 2000, step: 1 },
-      description: 'Altura do tabuleiro em tiles',
-      table: { defaultValue: { summary: '20' } },
-    },
-    width: {
-      control: 'text',
-      description: 'Largura do canvas (CSS)',
-      table: { defaultValue: { summary: '100%' } },
-    },
-    height: {
-      control: 'text',
-      description: 'Altura do canvas (CSS)',
-      table: { defaultValue: { summary: '100%' } },
-    },
-  },
   parameters: {
     layout: 'fullscreen',
     docs: {
       description: {
-        component:
-          '# 🎮 **IsoBoardCanvas - Tabuleiro Isométrico Avançado**\n\n' +
-          'O **IsoBoardCanvas** é o componente principal do IsoBoardLib que renderiza tabuleiros isométricos interativos de alta performance usando Phaser.js.\n\n' +
-          '## ✨ **Funcionalidades Principais**\n\n' +
-          '- 🚀 **Performance Ultra-Otimizada**: Suporte para boards de 10 tiles até 4 milhões de tiles mantendo 60 FPS\n' +
-          '- 🎯 **Sistema de Eventos Completo**: 25+ tipos de eventos com throttling configurável e zero duplicatas\n' +
-          '- 🔍 **Viewport Culling Inteligente**: Renderiza apenas tiles visíveis com spatial indexing\n' +
-          '- 🎨 **Level of Detail (LOD)**: 5 níveis automáticos baseados no zoom\n' +
-          '- 📦 **Drag & Drop Avançado**: Tiles do inventário para o board com validação visual\n' +
-          '- 📷 **Navegação Livre**: Mouse, teclado, touch com animações suaves\n' +
-          '- ⚙️ **Configuração Granular**: Controle total sobre performance, eventos e comportamento\n' +
-          '- 🎛️ **Controles Avançados**: Painel de controles, bookmarks, teleporte, auto-seguimento\n' +
-          '- 📊 **Monitoramento Real-time**: Performance metrics, debug tools e alertas\n\n' +
-          '## 🛠️ **Novas Funcionalidades de Otimização**\n\n' +
-          '- ⚡ **Event Throttling Configurável**: Controle granular da frequência de eventos\n' +
-          '- 🔍 **Filtros Inteligentes**: Eliminação automática de duplicatas e posições inválidas\n' +
-          '- 📦 **Event Batching**: Agrupamento eficiente de eventos similares\n' +
-          '- 🎚️ **Prioridades de Eventos**: Sistema de prioridade high/medium/low\n' +
-          '- 📈 **Monitoramento Avançado**: Métricas em tempo real e alertas de performance\n\n' +
-          '## 📱 **Suporte Multiplataforma**\n\n' +
-          '- 🖥️ Desktop: Navegação completa com mouse e teclado\n' +
-          '- 📱 Mobile: Touch otimizado com gestos nativos\n' +
-          '- 📺 Smart TV: Controle remoto e navegação por gamepad\n\n' +
-          'Explore as stories abaixo para ver exemplos práticos de uso e configuração.',
-      },
-    },
+        component: `
+# 🎮 IsoBoardLib - Biblioteca para Jogos Isométricos
+
+Uma biblioteca React/Phaser para criar jogos de tabuleiro isométricos com sistema completo de drag & drop, 
+eventos, validação e controles de câmera.
+
+## 🚀 Funcionalidades Principais
+
+- **Drag & Drop**: Arraste tiles do inventário para o board
+- **Movimentação**: Mova tiles já colocados no board
+- **Eventos**: Sistema completo de callbacks para todas as ações
+- **Validação**: Sistema de proximidade e validação de posições
+- **Câmera**: Controles de pan e zoom
+- **Performance**: Otimizado para boards grandes com viewport culling
+
+## 📖 Como Usar
+
+Todas as stories abaixo demonstram diferentes aspectos da biblioteca através de exemplos práticos de jogos.
+        `
+      }
+    }
   },
 };
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-// ==================== HELPER COMPONENTS ====================
+// ==================== TILES DE EXEMPLO ====================
 
-const InfoPanel: React.FC<{
+const gameTiles: Record<string, TileData[]> = {
+  // Tiles básicos para estratégia
+  strategy: [
+    {
+      id: 'unit-warrior',
+      type: 'unit',
+      color: 0xff4444,
+      metadata: {
+        label: '⚔️ Guerreiro',
+        description: 'Unidade de combate corpo-a-corpo',
+        properties: {
+          attack: 5,
+          defense: 3,
+          movement: 2,
+          health: 15,
+          cost: 3
+        }
+      }
+    },
+    {
+      id: 'unit-archer',
+      type: 'unit', 
+      color: 0x44ff44,
+      metadata: {
+        label: '🏹 Arqueiro',
+        description: 'Unidade de ataque à distância',
+        properties: {
+          attack: 4,
+          defense: 1,
+          movement: 3,
+          health: 10,
+          range: 3,
+          cost: 2
+        }
+      }
+    },
+    {
+      id: 'building-castle',
+      type: 'building',
+      color: 0x8B4513,
+      metadata: {
+        label: '🏰 Castelo',
+        description: 'Estrutura defensiva principal',
+        properties: {
+          defense: 10,
+          health: 50,
+          produces: 'units',
+          cost: 10
+        }
+      }
+    }
+  ],
+
+  // Tiles de recursos para city-building
+  resources: [
+    {
+      id: 'resource-wood',
+      type: 'resource',
+      color: 0x8B4513,
+      metadata: {
+        label: '🪵 Madeira',
+        description: 'Recurso básico para construção',
+        properties: {
+          value: 1,
+          renewable: true,
+          extractionRate: 2
+        }
+      }
+    },
+    {
+      id: 'resource-stone',
+      type: 'resource',
+      color: 0x808080,
+      metadata: {
+        label: '🗿 Pedra',
+        description: 'Recurso para construções avançadas',
+        properties: {
+          value: 2,
+          renewable: false,
+          extractionRate: 1
+        }
+      }
+    },
+    {
+      id: 'resource-gold',
+      type: 'resource',
+      color: 0xFFD700,
+      metadata: {
+        label: '💰 Ouro',
+        description: 'Moeda para comércio e contratação',
+        properties: {
+          value: 5,
+          renewable: false,
+          extractionRate: 1
+        }
+      }
+    }
+  ],
+
+  // Tiles de terreno
+  terrain: [
+    {
+      id: 'terrain-grass',
+      type: 'terrain',
+      color: 0x32CD32,
+      metadata: {
+        label: '🌱 Grama',
+        description: 'Terreno básico transitável',
+        properties: {
+          movementCost: 1,
+          buildable: true,
+          fertile: true
+        }
+      }
+    },
+    {
+      id: 'terrain-water',
+      type: 'terrain',
+      color: 0x4169E1,
+      metadata: {
+        label: '🌊 Água',
+        description: 'Terreno aquático',
+        properties: {
+          movementCost: 3,
+          buildable: false,
+          naval: true
+        }
+      }
+    },
+    {
+      id: 'terrain-mountain',
+      type: 'terrain',
+      color: 0x696969,
+      metadata: {
+        label: '⛰️ Montanha',
+        description: 'Terreno elevado e defensivo',
+        properties: {
+          movementCost: 2,
+          buildable: false,
+          defensiveBonus: 2
+        }
+      }
+    }
+  ]
+};
+
+// ==================== COMPONENTE DE LOG ====================
+
+const GameEventLog: React.FC<{
+  events: string[];
   title: string;
-  description: string;
-  features: string[];
-  performance?: string;
-  boardSize?: string;
-  position?: 'left' | 'right';
-  color?: string;
-}> = ({ 
-  title, 
-  description, 
-  features, 
-  performance, 
-  boardSize, 
-  position = 'left', 
-  color = '#00ff00' 
-}) => (
-  <div
-    style={{
-      position: 'absolute',
-      top: '10px',
-      [position]: '10px',
-      backgroundColor: 'rgba(0, 0, 0, 0.9)',
-      color: 'white',
-      padding: '16px',
-      borderRadius: '8px',
-      fontSize: '12px',
-      maxWidth: position === 'left' ? '320px' : '280px',
-      zIndex: 1000,
-      border: `2px solid ${color}`,
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-    }}
-  >
-    <h3 style={{ margin: '0 0 8px 0', color, fontSize: '14px' }}>{title}</h3>
-    <p style={{ margin: '0 0 12px 0', fontSize: '11px', lineHeight: '1.4' }}>
-      {description}
-    </p>
+  maxHeight?: number;
+}> = ({ events, title, maxHeight = 300 }) => (
+  <div style={{
+    width: '320px',
+    background: '#1a1a1a',
+    color: 'white',
+    padding: '15px',
+    borderLeft: '1px solid #333',
+    fontFamily: 'monospace',
+    fontSize: '12px',
+  }}>
+    <h3 style={{ color: '#00ff00', margin: '0 0 15px 0', fontSize: '14px' }}>
+      🎮 {title}
+    </h3>
     
-    {boardSize && (
-      <p style={{ margin: '0 0 8px 0', fontSize: '11px', color: '#ffaa00' }}>
-        <strong>📊 Board:</strong> {boardSize}
-      </p>
-    )}
+    <div style={{
+      background: '#0a0a0a',
+      padding: '10px',
+      borderRadius: '4px',
+      maxHeight: `${maxHeight}px`,
+      overflowY: 'auto',
+      fontSize: '11px',
+      lineHeight: '1.4',
+      border: '1px solid #333'
+    }}>
+      {events.length === 0 ? (
+        <div style={{ color: '#666', fontStyle: 'italic' }}>
+          Nenhum evento ainda...
+        </div>
+      ) : (
+        events.map((event, index) => (
+          <div key={index} style={{
+            color: index === 0 ? '#00ff00' : '#ccc',
+            opacity: Math.max(0.4, 1 - (index * 0.05)),
+            marginBottom: '3px',
+            padding: '2px 0',
+            borderBottom: index === 0 ? '1px solid #333' : 'none'
+          }}>
+            {event}
+          </div>
+        ))
+      )}
+    </div>
     
-    {performance && (
-      <p style={{ margin: '0 0 8px 0', fontSize: '11px', color: '#aaffaa' }}>
-        <strong>⚡ Performance:</strong> {performance}
-      </p>
-    )}
-    
-    <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '11px', lineHeight: '1.3' }}>
-      {features.map((feature, index) => (
-        <li key={index}>{feature}</li>
-      ))}
-    </ul>
+    <div style={{ 
+      marginTop: '10px', 
+      fontSize: '10px', 
+      color: '#666',
+      borderTop: '1px solid #333',
+      paddingTop: '8px'
+    }}>
+      💡 Arraste tiles do inventário ou mova tiles do board
+    </div>
   </div>
 );
 
-// ==================== STORY 1: CONFIGURAÇÃO BÁSICA ====================
+// ==================== STORIES ====================
 
-/**
- * 🎯 **Configuração Básica** - Primeiro contato com o IsoBoardCanvas
- */
-export const BasicConfiguration: Story = {
+// 📝 NOTA IMPORTANTE: Para que o inventário apareça, NÃO configure components.inventory
+// A lógica é: shouldShowInventory = !components.inventory
+// Se components.inventory for definido (mesmo como {}), o inventário NÃO aparece
+// Deixe components.inventory undefined para mostrar o inventário automaticamente
+
+export const BasicDragAndDrop: Story = {
+  name: '🎯 Básico: Drag & Drop',
   args: {
-    boardWidth: 25,
-    boardHeight: 25,
+    boardWidth: 8,
+    boardHeight: 6,
+    availableTiles: gameTiles.strategy,
   },
-  render: ({ boardWidth, boardHeight }) => (
-    <div style={{ width: '100vw', height: '100vh', margin: 0, padding: 0, overflow: 'hidden', position: 'relative' }}>
-      <IsoBoardCanvas 
-        boardWidth={boardWidth} 
-        boardHeight={boardHeight}
-        onTilePlaced={(event) => console.log('🔷 Tile colocado:', event)}
-        onDragStart={(event) => console.log('🎯 Drag iniciado:', event)}
-        onDragEnd={(event) => console.log('✅ Drag finalizado:', event)}
-        onBoardInitialized={(event) => console.log('🎮 Board inicializado:', event)}
-      />
-      
-      <InfoPanel
-        title="🎯 Configuração Básica"
-        description="Exemplo introdutório com configurações padrão. Perfeito para começar a usar o IsoBoardCanvas."
-        boardSize={`${boardWidth}×${boardHeight} (${(boardWidth * boardHeight).toLocaleString()} tiles)`}
-        performance="Otimizado automaticamente"
-        features={[
-          "🖱️ Navegação com mouse (drag para mover)",
-          "🔍 Zoom com scroll do mouse",
-          "📦 Drag & drop de tiles do inventário",
-          "🎯 Clique direito para informações do tile",
-          "📡 Eventos básicos no console",
-          "✨ Configurações padrão otimizadas"
-        ]}
-      />
-    </div>
-  ),
-  parameters: {
-    docs: {
-      description: {
-        story:
-          '🎯 **Configuração Básica** demonstra o uso mais simples do IsoBoardCanvas:\n\n' +
-          '```typescript\n' +
-          '<IsoBoardCanvas \n' +
-          '  boardWidth={25} \n' +
-          '  boardHeight={25}\n' +
-          '  onTilePlaced={(event) => console.log("Tile colocado:", event)}\n' +
-          '  onDragStart={(event) => console.log("Drag iniciado:", event)}\n' +
-          '/>\n' +
-          '```\n\n' +
-          '**Funcionalidades incluídas automaticamente:**\n' +
-          '- Performance otimizada para boards pequenos/médios\n' +
-          '- Sistema de eventos com throttling inteligente\n' +
-          '- Navegação suave com mouse\n' +
-          '- Drag & drop funcional\n' +
-          '- Validação automática de posições',
-      },
-    },
-  },
-};
-
-// ==================== STORY 2: OTIMIZAÇÃO DE EVENTOS ====================
-
-/**
- * ⚡ **Otimização de Eventos** - Demonstração do novo sistema configurável
- */
-export const EventOptimization: Story = {
-  args: {
-    boardWidth: 40,
-    boardHeight: 40,
-  },
-  render: ({ boardWidth, boardHeight }) => {
-    const [eventStats, setEventStats] = useState({ total: 0, throttled: 0, lastType: 'none' });
+  render: (args) => {
+    const [events, setEvents] = React.useState<string[]>([]);
     
-    // Configuração customizada de eventos
-    const optimizedConfig: Partial<CompleteIsoBoardConfiguration> = {
-      performance: {
-        eventOptimization: {
-          throttling: {
-            dragMove: 50,        // Mais responsivo
-            tileHover: 100,      // Hover mais fluido
-            dragValidation: 25,  // Validação mais frequente
-          },
-          monitoring: {
-            enableThrottleLogging: true,
-            enableEventMetrics: true,
-          },
-          filtering: {
-            enablePositionFilter: true,
-            enableDuplicateFilter: true,
-            enableValidationFilter: true,
-          }
-        }
-      }
+    const addEvent = (message: string) => {
+      const timestamp = new Date().toLocaleTimeString();
+      setEvents(prev => [`[${timestamp}] ${message}`, ...prev.slice(0, 19)]);
     };
 
-    const handleEventOptimized = useCallback((event: any) => {
-      setEventStats(prev => ({
-        total: prev.total + 1,
-        throttled: prev.throttled + (event.wasThrottled ? 1 : 0),
-        lastType: event.type
-      }));
-      console.log('📡 Evento Otimizado:', event);
-    }, []);
-
     return (
-      <div style={{ width: '100vw', height: '100vh', margin: 0, padding: 0, overflow: 'hidden', position: 'relative' }}>
-        <IsoBoardCanvas 
-          boardWidth={boardWidth} 
-          boardHeight={boardHeight}
-          config={optimizedConfig}
-          onEvent={handleEventOptimized}
-        />
-        
-        <InfoPanel
-          title="⚡ Otimização de Eventos"
-          description="Demonstração do sistema avançado de otimização de eventos com throttling configurável, filtros inteligentes e monitoramento em tempo real."
-          boardSize={`${boardWidth}×${boardHeight} (${(boardWidth * boardHeight).toLocaleString()} tiles)`}
-          performance="90% redução de eventos, zero duplicatas"
-          features={[
-            "⚡ Throttling configurável por tipo de evento",
-            "🔍 Filtros inteligentes automáticos",
-            "📊 Monitoramento de métricas em tempo real",
-            "🚨 Detecção automática de duplicatas",
-            "🎯 Validação de posições otimizada",
-            "📡 Logs detalhados no console"
-          ]}
-          color="#ffaa00"
-        />
-        
-        <div
-          style={{
-            position: 'absolute',
-            bottom: '10px',
-            right: '10px',
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            color: 'white',
-            padding: '12px',
-            borderRadius: '6px',
-            fontSize: '11px',
-            minWidth: '200px',
-            zIndex: 1000,
-            border: '1px solid #ffaa00',
-          }}
-        >
-          <h4 style={{ margin: '0 0 6px 0', color: '#ffaa00' }}>📊 Estatísticas de Eventos</h4>
-          <div><strong>Total emitidos:</strong> {eventStats.total}</div>
-          <div><strong>Throttled:</strong> {eventStats.throttled}</div>
-          <div><strong>Último tipo:</strong> {eventStats.lastType}</div>
-          <div style={{ fontSize: '10px', color: '#aaffaa', marginTop: '4px' }}>
-            ⚡ Eficiência: {eventStats.total > 0 ? Math.round((1 - eventStats.throttled / eventStats.total) * 100) : 100}%
-          </div>
+      <div style={{ width: '100%', height: '100vh', display: 'flex' }}>
+        <div style={{ flex: 1 }}>
+          <IsoBoardCanvas
+            {...args}
+            onDragStart={(event) => {
+              addEvent(`🎯 DRAG START: ${event.tile.metadata?.label} (${event.source})`);
+            }}
+            onDragEnd={(event) => {
+              addEvent(`${event.success ? '✅' : '❌'} DRAG END: ${event.action} - ${event.success ? 'sucesso' : 'cancelado'}`);
+            }}
+            onTilePlaced={(event) => {
+              addEvent(`🎮 TILE PLACED: ${event.tile.metadata?.label} → (${event.boardX}, ${event.boardY})`);
+            }}
+            onTileHover={(event) => {
+              if (event.type === 'tile-hover-start') {
+                addEvent(`👆 HOVER: ${event.tile.metadata?.label} em (${event.boardX}, ${event.boardY})`);
+              }
+            }}
+            onTileClick={(event) => {
+              addEvent(`🖱️ CLICK: ${event.tile.metadata?.label} [${event.button}] (${event.clickCount}x)`);
+            }}
+            components={{
+              controlsPanel: { enabled: true },
+              tileInfoPopup: { showOnHover: true }
+            }}
+          />
         </div>
+        
+        <GameEventLog 
+          events={events}
+          title="Eventos Básicos"
+        />
       </div>
     );
   },
   parameters: {
     docs: {
       description: {
-        story:
-          '⚡ **Otimização de Eventos** demonstra o novo sistema configurável:\n\n' +
-          '```typescript\n' +
-          'const optimizedConfig = {\n' +
-          '  performance: {\n' +
-          '    eventOptimization: {\n' +
-          '      throttling: {\n' +
-          '        dragMove: 50,        // 50ms entre eventos\n' +
-          '        tileHover: 100,      // 100ms para hover\n' +
-          '        dragValidation: 25,  // 25ms para validação\n' +
-          '      },\n' +
-          '      monitoring: {\n' +
-          '        enableThrottleLogging: true,\n' +
-          '        enableEventMetrics: true,\n' +
-          '      }\n' +
-          '    }\n' +
-          '  }\n' +
-          '};\n' +
-          '```\n\n' +
-          '**Resultados:**\n' +
-          '- 90% redução na quantidade de eventos\n' +
-          '- Zero eventos duplicados\n' +
-          '- Performance consistente\n' +
-          '- Configuração granular por tipo de evento',
-      },
-    },
-  },
-};
+        story: `
+### 🎯 Funcionalidade Básica de Drag & Drop
 
-// ==================== STORY 3: CONTROLES AVANÇADOS ====================
+Demonstra as funcionalidades essenciais:
 
-/**
- * 🎛️ **Controles Avançados** - Navegação completa e painel de controles
- */
-export const AdvancedControls: Story = {
-  args: {
-    boardWidth: 60,
-    boardHeight: 60,
-  },
-  render: ({ boardWidth, boardHeight }) => (
-    <div style={{ width: '100vw', height: '100vh', margin: 0, padding: 0, overflow: 'hidden', position: 'relative' }}>
-      <IsoBoardCanvas 
-        boardWidth={boardWidth} 
-        boardHeight={boardHeight}
-        components={{
-          controlsPanel: { enabled: true },
-          realtimeDisplay: { enabled: true },
-        }}
-        onCameraEvent={(event) => console.log('📷 Camera:', event)}
-        onTileEvent={(event) => console.log('🔷 Tile:', event)}
-        onDragEvent={(event) => console.log('🎯 Drag:', event)}
-        eventConfig={{
-          enableEventLogging: true,
-          performanceUpdateInterval: 2000,
-        }}
-      />
-      
-      <InfoPanel
-        title="🎛️ Controles Avançados"
-        description="Sistema completo de navegação e controles com painel lateral, navegação por teclado, bookmarks e teleporte suave."
-        boardSize={`${boardWidth}×${boardHeight} (${(boardWidth * boardHeight).toLocaleString()} tiles)`}
-        performance="Display em tempo real ativo"
-        features={[
-          "⌨️ WASD/Setas para navegação",
-          "⚡ Shift + movimento para velocidade alta",
-          "🔍 +/- para zoom, R para reset",
-          "🎯 C/Space para centralizar camera",
-          "📍 Sistema de bookmarks integrado",
-          "🚀 Teleporte suave para posições",
-          "📊 Painel de controles à direita",
-          "📈 Display de performance em tempo real"
-        ]}
-        color="#00aaff"
-      />
-    </div>
-  ),
-  parameters: {
-    docs: {
-      description: {
-        story:
-          '🎛️ **Controles Avançados** inclui sistema completo de navegação:\n\n' +
-          '```typescript\n' +
-          '<IsoBoardCanvas \n' +
-          '  boardWidth={60} \n' +
-          '  boardHeight={60}\n' +
-          '  components={{\n' +
-          '    controlsPanel: { enabled: true },\n' +
-          '    realtimeDisplay: { enabled: true },\n' +
-          '  }}\n' +
-          '/>\n' +
-          '```\n\n' +
-          '**Controles de Teclado:**\n' +
-          '- `WASD` ou `Arrow Keys`: Navegação básica\n' +
-          '- `Shift + movimento`: Navegação rápida\n' +
-          '- `+/-`: Zoom in/out\n' +
-          '- `R` ou `0`: Reset zoom\n' +
-          '- `C` ou `Space`: Centralizar camera\n\n' +
-          '**Funcionalidades:**\n' +
-          '- Bookmarks para posições favoritas\n' +
-          '- Teleporte suave com animações\n' +
-          '- Auto-seguimento de objetos\n' +
-          '- Display de métricas em tempo real',
-      },
-    },
-  },
-};
+- **Arrastar do Inventário**: Clique e arraste tiles do inventário para o board
+- **Mover no Board**: Clique e arraste tiles já colocados para nova posição  
+- **Eventos**: Todos os eventos são logados em tempo real
+- **Hover**: Passe o mouse sobre tiles para ver informações
+- **Click**: Clique direito para detalhes, esquerdo para selecionar
 
-// ==================== STORY 4: PERFORMANCE EXTREMA ====================
-
-/**
- * 🚀 **Performance Extrema** - Board médio com otimizações máximas
- */
-export const ExtremePerformance: Story = {
-  args: {
-    boardWidth: 150,
-    boardHeight: 150,
-  },
-  render: ({ boardWidth, boardHeight }) => {
-    const performanceConfig: Partial<CompleteIsoBoardConfiguration> = {
-      performance: {
-        eventOptimization: {
-          throttling: {
-            dragMove: 200,           // Throttling agressivo
-            tileHover: 300,
-            dragValidation: 100,
-            cameraMove: 100,
-            performanceUpdate: 2000,
-          },
-          batching: {
-            enableBatching: true,
-            batchSize: 20,
-            batchInterval: 33,       // 30fps
-          },
-          filtering: {
-            enablePositionFilter: true,
-            positionThreshold: 2.0,  // Filtro agressivo
-            enableDuplicateFilter: true,
-            duplicateTimeWindow: 100,
-          },
-          monitoring: {
-            enableThrottleLogging: false, // Sem logs em produção
-            maxEventQueueSize: 500,
-          }
-        }
+**Eventos Disponíveis:**
+- \`onDragStart\` - Quando inicia um drag
+- \`onDragEnd\` - Quando termina um drag (sucesso ou falha)
+- \`onTilePlaced\` - Quando um tile é colocado no board
+- \`onTileHover\` - Quando passa mouse sobre um tile
+- \`onTileClick\` - Quando clica em um tile
+        `
       }
-    };
-
-    return (
-      <div style={{ width: '100vw', height: '100vh', margin: 0, padding: 0, overflow: 'hidden', position: 'relative' }}>
-        <IsoBoardCanvas 
-          boardWidth={boardWidth} 
-          boardHeight={boardHeight}
-          config={performanceConfig}
-          components={{
-            realtimeDisplay: { enabled: true, updateInterval: 1000 },
-          }}
-          onPerformanceEvent={(event) => console.log('⚡ Performance:', event)}
-          onPerformanceWarning={(event) => console.warn('⚠️ Warning:', event)}
-        />
-        
-        <InfoPanel
-          title="🚀 Performance Extrema"
-          description="Configuração otimizada para performance máxima com throttling agressivo, batching de eventos e filtros inteligentes."
-          boardSize={`${boardWidth}×${boardHeight} (${(boardWidth * boardHeight).toLocaleString()} tiles)`}
-          performance="60 FPS garantidos, throttling agressivo"
-          features={[
-            "⚡ Throttling agressivo de eventos",
-            "📦 Batching automático de eventos similares",
-            "🔍 Filtros de posição ultra-rápidos",
-            "🎯 Renderização apenas de tiles visíveis",
-            "💾 Cache inteligente de viewport",
-            "📊 Spatial indexing otimizado",
-            "🚨 Alertas automáticos de performance",
-            "📈 Métricas em tempo real"
-          ]}
-          color="#ff6600"
-        />
-      </div>
-    );
-  },
-  parameters: {
-    docs: {
-      description: {
-        story:
-          '🚀 **Performance Extrema** para boards médios/grandes:\n\n' +
-          '```typescript\n' +
-          'const performanceConfig = {\n' +
-          '  performance: {\n' +
-          '    eventOptimization: {\n' +
-          '      throttling: {\n' +
-          '        dragMove: 200,           // Throttling extremo\n' +
-          '        tileHover: 300,\n' +
-          '        performanceUpdate: 2000, // Updates menos frequentes\n' +
-          '      },\n' +
-          '      batching: {\n' +
-          '        enableBatching: true,\n' +
-          '        batchSize: 20,           // Batches maiores\n' +
-          '        batchInterval: 33,       // 30fps\n' +
-          '      },\n' +
-          '      filtering: {\n' +
-          '        positionThreshold: 2.0,  // Filtro ultra-agressivo\n' +
-          '      }\n' +
-          '    }\n' +
-          '  }\n' +
-          '};\n' +
-          '```\n\n' +
-          '**Otimizações:**\n' +
-          '- Renderiza apenas ~300-500 tiles visíveis de 22.500 totais\n' +
-          '- Batching reduz eventos em 80%\n' +
-          '- Filtros eliminam 95% dos eventos desnecessários\n' +
-          '- 60 FPS consistentes mesmo com interação intensa',
-      },
-    },
-  },
+    }
+  }
 };
 
-// ==================== STORY 5: DESENVOLVIMENTO E DEBUG ====================
-
-/**
- * 🐛 **Desenvolvimento e Debug** - Configuração para desenvolvimento
- */
-export const DevelopmentDebug: Story = {
+export const StrategyGame: Story = {
+  name: '⚔️ Jogo de Estratégia',
   args: {
-    boardWidth: 30,
-    boardHeight: 30,
+    boardWidth: 10,
+    boardHeight: 8,
+    availableTiles: gameTiles.strategy,
   },
-  render: ({ boardWidth, boardHeight }) => {
-    const debugConfig: Partial<CompleteIsoBoardConfiguration> = {
-      performance: {
-        eventOptimization: {
-          throttling: {
-            dragMove: 16,        // ~60fps - Sem throttling
-            tileHover: 16,
-            dragValidation: 16,
-          },
-          monitoring: {
-            enableEventMetrics: true,
-            enableThrottleLogging: true,    // Logs detalhados
-            enablePerformanceAlerts: true,
-            alertThresholds: {
-              eventsPerSecond: 100,         // Alerta com menos eventos
-              queueSize: 50,
-            }
-          },
-          advanced: {
-            enableEventPooling: false,      // Sem pooling para debug
-            enableLazyEvaluation: false,
-          }
-        }
-      }
-    };
-
-    return (
-      <div style={{ width: '100vw', height: '100vh', margin: 0, padding: 0, overflow: 'hidden', position: 'relative' }}>
-        <IsoBoardCanvas 
-          boardWidth={boardWidth} 
-          boardHeight={boardHeight}
-          config={debugConfig}
-          components={{
-            controlsPanel: { enabled: true },
-            realtimeDisplay: { enabled: true, updateInterval: 500 },
-          }}
-          onEvent={(event) => console.log('🐛 Debug Event:', event)}
-          onError={(event) => console.error('❌ Error:', event)}
-          eventConfig={{
-            enableEventLogging: true,
-            enableTileEvents: true,
-            enableDragEvents: true,
-            enableCameraEvents: true,
-            enablePerformanceEvents: true,
-          }}
-        />
-        
-        <InfoPanel
-          title="🐛 Desenvolvimento e Debug"
-          description="Configuração especial para desenvolvimento com logs detalhados, métricas em tempo real e alertas de performance."
-          boardSize={`${boardWidth}×${boardHeight} (${(boardWidth * boardHeight).toLocaleString()} tiles)`}
-          performance="Máxima responsividade, logs completos"
-          features={[
-            "🔍 Throttling mínimo (16ms) para responsividade",
-            "📊 Logs detalhados de todos os eventos",
-            "🚨 Alertas de performance sensíveis",
-            "📈 Métricas atualizadas a cada 500ms",
-            "🐛 Tracking de erros completo",
-            "⚙️ Pooling desabilitado para debug",
-            "📡 Todos os tipos de eventos habilitados",
-            "🎯 Console com informações detalhadas"
-          ]}
-          color="#aa00ff"
-        />
-      </div>
-    );
-  },
-  parameters: {
-    docs: {
-      description: {
-        story:
-          '🐛 **Desenvolvimento e Debug** com configuração para desenvolvimento:\n\n' +
-          '```typescript\n' +
-          'const debugConfig = {\n' +
-          '  performance: {\n' +
-          '    eventOptimization: {\n' +
-          '      throttling: {\n' +
-          '        dragMove: 16,        // Quase sem throttling\n' +
-          '        tileHover: 16,\n' +
-          '        dragValidation: 16,\n' +
-          '      },\n' +
-          '      monitoring: {\n' +
-          '        enableEventMetrics: true,\n' +
-          '        enableThrottleLogging: true,\n' +
-          '        enablePerformanceAlerts: true,\n' +
-          '      },\n' +
-          '      advanced: {\n' +
-          '        enableEventPooling: false,   // Sem pooling\n' +
-          '        enableLazyEvaluation: false, // Debug completo\n' +
-          '      }\n' +
-          '    }\n' +
-          '  }\n' +
-          '};\n' +
-          '```\n\n' +
-          '**Ideal para:**\n' +
-          '- Debug de eventos e performance\n' +
-          '- Desenvolvimento de novas funcionalidades\n' +
-          '- Análise de comportamento do sistema\n' +
-          '- Testes de integração',
-      },
-    },
-  },
-};
-
-// ==================== STORY 6: DISPOSITIVOS MÓVEIS ====================
-
-/**
- * 📱 **Dispositivos Móveis** - Otimizado para mobile e tablet
- */
-export const MobileOptimized: Story = {
-  args: {
-    boardWidth: 50,
-    boardHeight: 50,
-  },
-  render: ({ boardWidth, boardHeight }) => {
-    const mobileConfig: Partial<CompleteIsoBoardConfiguration> = {
-      performance: {
-        eventOptimization: {
-          throttling: {
-            dragMove: 150,       // Throttling mais agressivo
-            tileHover: 300,
-            dragValidation: 100,
-            cameraMove: 100,
-          },
-          batching: {
-            batchSize: 5,        // Batches menores
-            batchInterval: 33,   // 30fps
-          },
-          advanced: {
-            enableEventPooling: true,
-            poolSize: 50,        // Pool menor
-          }
-        }
-      },
-      interaction: {
-        enableTouch: true,
-        dragThreshold: 10,       // Threshold maior para touch
-        hoverDelay: 500,         // Delay maior no mobile
-      }
-    };
-
-    return (
-      <div style={{ width: '100vw', height: '100vh', margin: 0, padding: 0, overflow: 'hidden', position: 'relative' }}>
-        <IsoBoardCanvas 
-          boardWidth={boardWidth} 
-          boardHeight={boardHeight}
-          config={mobileConfig}
-          components={{
-            realtimeDisplay: { enabled: true, position: 'top-right' },
-            controlsPanel: { enabled: false }, // Sem controles em mobile
-          }}
-          onPerformanceEvent={(event) => console.log('📱 Mobile Performance:', event)}
-        />
-        
-        <InfoPanel
-          title="📱 Dispositivos Móveis"
-          description="Configuração específica para smartphones e tablets com gestos touch otimizados e performance adaptada para dispositivos móveis."
-          boardSize={`${boardWidth}×${boardWidth} (${(boardWidth * boardHeight).toLocaleString()} tiles)`}
-          performance="30 FPS, otimizado para bateria"
-          features={[
-            "👆 Gestos touch nativos otimizados",
-            "🔄 Throttling adaptado para mobile",
-            "🔋 Economia de bateria ativa",
-            "📦 Batches menores e mais frequentes",
-            "🎯 Threshold de drag aumentado",
-            "⏱️ Delays maiores para hover",
-            "📱 Interface simplificada",
-            "🚀 Pool de eventos reduzido"
-          ]}
-          color="#ff0099"
-        />
-      </div>
-    );
-  },
-  parameters: {
-    docs: {
-      description: {
-        story:
-          '📱 **Dispositivos Móveis** com otimizações específicas:\n\n' +
-          '```typescript\n' +
-          'const mobileConfig = {\n' +
-          '  performance: {\n' +
-          '    eventOptimization: {\n' +
-          '      throttling: {\n' +
-          '        dragMove: 150,       // Mais agressivo\n' +
-          '        tileHover: 300,\n' +
-          '        dragValidation: 100,\n' +
-          '      },\n' +
-          '      batching: {\n' +
-          '        batchSize: 5,        // Batches menores\n' +
-          '        batchInterval: 33,   // 30fps\n' +
-          '      }\n' +
-          '    }\n' +
-          '  },\n' +
-          '  interaction: {\n' +
-          '    enableTouch: true,\n' +
-          '    dragThreshold: 10,       // Maior para touch\n' +
-          '    hoverDelay: 500,         // Delay maior\n' +
-          '  }\n' +
-          '};\n' +
-          '```\n\n' +
-          '**Características:**\n' +
-          '- Gestos touch responsivos\n' +
-          '- Economia de bateria\n' +
-          '- Performance estável em dispositivos menos potentes\n' +
-          '- Interface adaptada para telas pequenas',
-      },
-    },
-  },
-};
-
-// ==================== STORY 7: BOARD GIGANTESCO ====================
-
-/**
- * 🔥 **Board Gigantesco** - Teste de stress com 1 milhão de tiles
- */
-export const GiantBoard: Story = {
-  args: {
-    boardWidth: 1000,
-    boardHeight: 1000,
-  },
-  render: ({ boardWidth, boardHeight }) => {
-    const giantConfig: Partial<CompleteIsoBoardConfiguration> = {
-      performance: {
-        eventOptimization: {
-          throttling: {
-            dragMove: 300,           // Throttling extremo
-            tileHover: 500,
-            dragValidation: 200,
-            visibleTilesUpdate: 500,
-            performanceUpdate: 5000,
-          },
-          filtering: {
-            positionThreshold: 5.0,  // Filtro muito agressivo
-            enablePositionFilter: true,
-            enableDuplicateFilter: true,
-          },
-          monitoring: {
-            enableThrottleLogging: false,
-            maxEventQueueSize: 500,
-          }
-        }
-      }
-    };
-
-    return (
-      <div style={{ width: '100vw', height: '100vh', margin: 0, padding: 0, overflow: 'hidden', position: 'relative' }}>
-        <IsoBoardCanvas 
-          boardWidth={boardWidth} 
-          boardHeight={boardHeight}
-          config={giantConfig}
-          components={{
-            controlsPanel: { enabled: true },
-            realtimeDisplay: { enabled: true, updateInterval: 2000 },
-          }}
-          onPerformanceWarning={(event) => console.warn('🚨 Giant Board Warning:', event)}
-          onError={(event) => console.error('💥 Giant Board Error:', event)}
-        />
-        
-        <InfoPanel
-          title="🔥 Board Gigantesco"
-          description="Teste de stress com 1 MILHÃO de tiles! Demonstra as capacidades extremas do sistema com otimizações ultra-avançadas."
-          boardSize={`${boardWidth.toLocaleString()}×${boardHeight.toLocaleString()} (${(boardWidth * boardHeight).toLocaleString()} tiles)`}
-          performance="60 FPS renderizando ~0.05% dos tiles"
-          features={[
-            "🚀 1 MILHÃO de tiles funcionando",
-            "⚡ Renderiza apenas ~500 tiles visíveis",
-            "🎯 Spatial indexing ultra-rápido",
-            "🔍 Viewport culling extremo",
-            "💾 Cache inteligente de chunks",
-            "📊 LOD com 5 níveis automáticos",
-            "🎚️ Throttling extremo de eventos",
-            "🚨 Monitoring de stress em tempo real"
-          ]}
-          color="#ff3300"
-        />
-      </div>
-    );
-  },
-  parameters: {
-    docs: {
-      description: {
-        story:
-          '🔥 **Board Gigantesco** - Teste de stress extremo:\n\n' +
-          '```typescript\n' +
-          'const giantConfig = {\n' +
-          '  performance: {\n' +
-          '    eventOptimization: {\n' +
-          '      throttling: {\n' +
-          '        dragMove: 300,           // Throttling extremo\n' +
-          '        tileHover: 500,\n' +
-          '        visibleTilesUpdate: 500,\n' +
-          '      },\n' +
-          '      filtering: {\n' +
-          '        positionThreshold: 5.0,  // Filtro ultra-agressivo\n' +
-          '      }\n' +
-          '    }\n' +
-          '  }\n' +
-          '};\n' +
-          '```\n\n' +
-          '**Performance Extrema:**\n' +
-          '- 1.000.000 de tiles gerenciados\n' +
-          '- Renderiza apenas 0.05% dos tiles (500 de 1M)\n' +
-          '- 60 FPS consistentes\n' +
-          '- Uso de memória otimizado\n' +
-          '- Sistema de chunks 64×64\n' +
-          '- Throttling de eventos ultra-agressivo',
-      },
-    },
-  },
-};
-
-// ==================== STORY 8: CONFIGURAÇÃO DE PRODUÇÃO ====================
-
-/**
- * 🏭 **Configuração de Produção** - Setup ideal para aplicações reais
- */
-export const ProductionReady: Story = {
-  args: {
-    boardWidth: 80,
-    boardHeight: 80,
-  },
-  render: ({ boardWidth, boardHeight }) => {
-    const productionConfig: Partial<CompleteIsoBoardConfiguration> = {
-      performance: {
-        eventOptimization: {
-          throttling: {
-            dragMove: 100,
-            tileHover: 200,
-            dragValidation: 50,
-            performanceUpdate: 5000,
-          },
-          batching: {
-            enableBatching: true,
-            batchSize: 15,
-            batchInterval: 20,
-          },
-          filtering: {
-            enablePositionFilter: true,
-            enableDuplicateFilter: true,
-            enableValidationFilter: true,
-          },
-          monitoring: {
-            enableEventMetrics: true,
-            enableThrottleLogging: false,     // Sem logs em produção
-            enablePerformanceAlerts: true,
-          },
-          priorities: {
-            high: ['error', 'tile-placed', 'tile-removed', 'drag-start', 'drag-end'],
-            medium: ['tile-selected', 'camera-zoom', 'board-state-changed'],
-            low: ['drag-move', 'tile-hover', 'camera-move'],
-          }
-        }
-      }
-    };
-
-    return (
-      <div style={{ width: '100vw', height: '100vh', margin: 0, padding: 0, overflow: 'hidden', position: 'relative' }}>
-        <IsoBoardCanvas 
-          boardWidth={boardWidth} 
-          boardHeight={boardHeight}
-          config={productionConfig}
-          components={{
-            controlsPanel: { enabled: true },
-            realtimeDisplay: { enabled: true, updateInterval: 3000 },
-          }}
-          onPerformanceEvent={(event) => console.log('🏭 Production Metrics:', event)}
-          onError={(event) => console.error('🚨 Production Error:', event)}
-          eventConfig={{
-            enablePerformanceEvents: true,
-            enableErrorEvents: true,
-            performanceUpdateInterval: 5000,
-          }}
-        />
-        
-        <InfoPanel
-          title="🏭 Configuração de Produção"
-          description="Setup ideal para aplicações reais com balance perfeito entre performance e funcionalidade, monitoramento de produção e error handling robusto."
-          boardSize={`${boardWidth}×${boardHeight} (${(boardWidth * boardHeight).toLocaleString()} tiles)`}
-          performance="Otimizado para produção real"
-          features={[
-            "⚖️ Balance ideal performance/funcionalidade",
-            "🚨 Error handling robusto",
-            "📊 Monitoramento de produção",
-            "🎚️ Prioridades de eventos configuradas",
-            "📦 Batching otimizado para responsividade",
-            "🔍 Filtros produtivos ativados",
-            "⚡ Throttling balanceado",
-            "📈 Métricas essenciais apenas"
-          ]}
-          color="#00aa00"
-        />
-      </div>
-    );
-  },
-  parameters: {
-    docs: {
-      description: {
-        story:
-          '🏭 **Configuração de Produção** - Setup ideal para apps reais:\n\n' +
-          '```typescript\n' +
-          'const productionConfig = {\n' +
-          '  performance: {\n' +
-          '    eventOptimization: {\n' +
-          '      throttling: {\n' +
-          '        dragMove: 100,\n' +
-          '        tileHover: 200,\n' +
-          '        performanceUpdate: 5000,\n' +
-          '      },\n' +
-          '      batching: {\n' +
-          '        enableBatching: true,\n' +
-          '        batchSize: 15,\n' +
-          '        batchInterval: 20,\n' +
-          '      },\n' +
-          '      monitoring: {\n' +
-          '        enableEventMetrics: true,\n' +
-          '        enableThrottleLogging: false,  // Sem logs\n' +
-          '        enablePerformanceAlerts: true,\n' +
-          '      },\n' +
-          '      priorities: {\n' +
-          '        high: ["error", "tile-placed", "drag-start"],\n' +
-          '        low: ["drag-move", "tile-hover"],\n' +
-          '      }\n' +
-          '    }\n' +
-          '  }\n' +
-          '};\n' +
-          '```\n\n' +
-          '**Características de Produção:**\n' +
-          '- Balance otimizado entre performance e UX\n' +
-          '- Error handling e recovery automático\n' +
-          '- Logs mínimos para performance\n' +
-          '- Monitoramento essencial ativo\n' +
-          '- Prioridades de eventos bem definidas',
-      },
-    },
-  },
-};
-
-// ==================== STORY 9: CONFIGURAÇÃO DE TEMAS ====================
-
-/**
- * 🎨 **Configuração de Temas** - Demonstração dos temas disponíveis
- */
-export const ThemeConfiguration: Story = {
-  args: {
-    boardWidth: 40,
-    boardHeight: 40,
-  },
-  render: ({ boardWidth, boardHeight }) => {
-    const [currentTheme, setCurrentTheme] = useState<'DEFAULT' | 'DARK' | 'LIGHT'>('DEFAULT');
-
-    return (
-      <div style={{ width: '100vw', height: '100vh', margin: 0, padding: 0, overflow: 'hidden', position: 'relative' }}>
-        <IsoBoardCanvas 
-          boardWidth={boardWidth} 
-          boardHeight={boardHeight}
-          theme={currentTheme}
-          components={{
-            controlsPanel: { enabled: true },
-            realtimeDisplay: { enabled: true },
-          }}
-          onThemeChange={(theme) => console.log('🎨 Tema alterado:', theme)}
-        />
-        
-        <InfoPanel
-          title="🎨 Configuração de Temas"
-          description="Demonstração dos diferentes temas disponíveis: DEFAULT (azul oceano), DARK (roxo neon) e LIGHT (minimalista)."
-          boardSize={`${boardWidth}×${boardHeight} - Tema: ${currentTheme}`}
-          performance="Temas não afetam performance"
-          features={[
-            "🎭 3 temas pré-definidos incluídos",
-            "🎨 Paleta de cores consistente",
-            "🌓 Suporte a modo escuro/claro",
-            "⚡ Troca dinâmica de temas",
-            "🎯 Customização completa possível",
-            "📱 Responsivo em todos os temas",
-            "🎪 Animações suaves de transição",
-            "🔧 API para temas customizados"
-          ]}
-          color="#ff6699"
-        />
-        
-        <div
-          style={{
-            position: 'absolute',
-            top: '10px',
-            right: '10px',
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            color: 'white',
-            padding: '12px',
-            borderRadius: '6px',
-            fontSize: '11px',
-            zIndex: 1000,
-            border: '1px solid #ff6699',
-          }}
-        >
-          <h4 style={{ margin: '0 0 8px 0', color: '#ff6699' }}>🎨 Trocar Tema</h4>
-          {(['DEFAULT', 'DARK', 'LIGHT'] as const).map(theme => (
-            <button
-              key={theme}
-              onClick={() => setCurrentTheme(theme)}
-              style={{
-                display: 'block',
-                width: '100%',
-                margin: '4px 0',
-                padding: '6px 12px',
-                border: 'none',
-                borderRadius: '4px',
-                backgroundColor: currentTheme === theme ? '#ff6699' : '#333',
-                color: 'white',
-                cursor: 'pointer',
-                fontSize: '10px',
-              }}
-            >
-              {theme === 'DEFAULT' ? '🌊 Oceano (Padrão)' : 
-               theme === 'DARK' ? '🌙 Escuro (Neon)' : 
-               '☀️ Claro (Minimal)'}
-            </button>
-          ))}
-        </div>
-      </div>
-    );
-  },
-  parameters: {
-    docs: {
-      description: {
-        story:
-          '🎨 **Configuração de Temas** demonstra os temas disponíveis:\n\n' +
-          '```typescript\n' +
-          '// Tema pré-definido\n' +
-          '<IsoBoardCanvas theme="DARK" />\n\n' +
-          '// Tema customizado\n' +
-          'const customTheme = {\n' +
-          '  name: "Custom",\n' +
-          '  colors: {\n' +
-          '    primary: "#ff6b35",\n' +
-          '    background: "#1a1a1a",\n' +
-          '    surface: "rgba(255, 255, 255, 0.1)",\n' +
-          '    // ... mais cores\n' +
-          '  },\n' +
-          '  spacing: { xs: 4, sm: 8, md: 16 },\n' +
-          '  // ... mais configurações\n' +
-          '};\n' +
-          '<IsoBoardCanvas theme={customTheme} />\n' +
-          '```\n\n' +
-          '**Temas Incluídos:**\n' +
-          '- **DEFAULT**: Azul oceano profundo com acentos laranja\n' +
-          '- **DARK**: Roxo neon com fundo escuro para modo noturno\n' +
-          '- **LIGHT**: Minimalista com fundo claro e azul suave\n\n' +
-          '**Customização:**\n' +
-          '- Crie temas totalmente personalizados\n' +
-          '- Troca dinâmica em runtime\n' +
-          '- Suporte a CSS custom properties\n' +
-          '- Animações de transição suaves',
-      },
-    },
-  },
-};
-
-// ==================== STORY 10: COMPARAÇÃO DE PERFORMANCE ====================
-
-/**
- * ⚡ **Comparação de Performance** - Antes vs Depois das otimizações
- */
-export const PerformanceComparison: Story = {
-  args: {
-    boardWidth: 100,
-    boardHeight: 100,
-  },
-  render: ({ boardWidth, boardHeight }) => {
-    const [mode, setMode] = useState<'before' | 'after'>('after');
+  render: (args) => {
+    const [events, setEvents] = React.useState<string[]>([]);
+    const [gameState, setGameState] = React.useState({
+      selectedUnit: null as TileData | null,
+      turn: 1,
+      player: 'Jogador 1',
+      resources: { gold: 10, units: 0 }
+    });
     
-    const beforeConfig: Partial<CompleteIsoBoardConfiguration> = {
-      performance: {
-        eventOptimization: {
-          throttling: {
-            dragMove: 1,         // Sem throttling
-            tileHover: 1,
-            dragValidation: 1,
-          },
-          filtering: {
-            enablePositionFilter: false,
-            enableDuplicateFilter: false,
-            enableValidationFilter: false,
-          },
-          batching: {
-            enableBatching: false,
-          },
-          monitoring: {
-            enableThrottleLogging: true,
-            enableEventMetrics: true,
-          }
-        }
-      }
+    const addEvent = (message: string) => {
+      const timestamp = new Date().toLocaleTimeString();
+      setEvents(prev => [`[${timestamp}] ${message}`, ...prev.slice(0, 15)]);
     };
-
-    const afterConfig: Partial<CompleteIsoBoardConfiguration> = {
-      performance: {
-        eventOptimization: {
-          throttling: {
-            dragMove: 100,
-            tileHover: 200,
-            dragValidation: 50,
-          },
-          filtering: {
-            enablePositionFilter: true,
-            enableDuplicateFilter: true,
-            enableValidationFilter: true,
-          },
-          batching: {
-            enableBatching: true,
-            batchSize: 15,
-          },
-          monitoring: {
-            enableThrottleLogging: true,
-            enableEventMetrics: true,
-          }
-        }
-      }
-    };
-
-    const [eventStats, setEventStats] = useState({ count: 0, startTime: Date.now() });
-
-    const handleEvent = useCallback((_event: any) => {
-      setEventStats(prev => ({ 
-        count: prev.count + 1, 
-        startTime: prev.startTime 
-      }));
-    }, []);
-
-    const eventsPerSecond = eventStats.count / Math.max(1, (Date.now() - eventStats.startTime) / 1000);
 
     return (
-      <div style={{ width: '100vw', height: '100vh', margin: 0, padding: 0, overflow: 'hidden', position: 'relative' }}>
-        <IsoBoardCanvas 
-          boardWidth={boardWidth} 
-          boardHeight={boardHeight}
-          config={mode === 'before' ? beforeConfig : afterConfig}
-          onEvent={handleEvent}
-          components={{
-            realtimeDisplay: { enabled: true, updateInterval: 1000 },
-          }}
-        />
+      <div style={{ width: '100%', height: '100vh', display: 'flex' }}>
+        <div style={{ flex: 1 }}>
+          <IsoBoardCanvas
+            {...args}
+            onTilePlaced={(event) => {
+              const unit = event.tile;
+              const cost = unit.metadata?.properties?.cost || 0;
+              
+              if (gameState.resources.gold >= cost) {
+                setGameState(prev => ({
+                  ...prev,
+                  resources: {
+                    ...prev.resources,
+                    gold: prev.resources.gold - cost,
+                    units: prev.resources.units + 1
+                  }
+                }));
+                addEvent(`🎖️ ${unit.metadata?.label} recrutado por ${cost} ouro`);
+                addEvent(`💰 Ouro restante: ${gameState.resources.gold - cost}`);
+              } else {
+                addEvent(`❌ Ouro insuficiente para ${unit.metadata?.label} (${cost})`);
+              }
+            }}
+            onTileClick={(event) => {
+              if (event.button === 'left') {
+                setGameState(prev => ({ ...prev, selectedUnit: event.tile }));
+                addEvent(`👆 Selecionado: ${event.tile.metadata?.label}`);
+              } else if (event.button === 'right') {
+                const unit = event.tile;
+                const props = unit.metadata?.properties;
+                addEvent(`📋 ${unit.metadata?.label}: ATK ${props?.attack}, DEF ${props?.defense}, MOV ${props?.movement}`);
+              }
+            }}
+            onDragStart={(event) => {
+              if (event.source === 'board') {
+                addEvent(`🔄 Movendo ${event.tile.metadata?.label}`);
+              } else {
+                addEvent(`🎯 Recrutando ${event.tile.metadata?.label}`);
+              }
+            }}
+            components={{
+              controlsPanel: { enabled: true },
+              tileInfoPopup: { showOnHover: true, showProperties: true }
+            }}
+          />
+        </div>
         
-        <InfoPanel
-          title={`⚡ Performance ${mode === 'before' ? 'ANTES' : 'DEPOIS'}`}
-          description={
-            mode === 'before' 
-              ? "Configuração SEM otimizações - eventos sem throttling, sem filtros, sem batching. Arraste tiles para ver a diferença!"
-              : "Configuração COM otimizações - throttling inteligente, filtros ativos, batching habilitado. Performance 90% melhor!"
-          }
-          boardSize={`${boardWidth}×${boardHeight} (${(boardWidth * boardHeight).toLocaleString()} tiles)`}
-          performance={
-            mode === 'before'
-              ? `🔴 ${Math.round(eventsPerSecond)} eventos/seg (ALTO)`
-              : `🟢 ${Math.round(eventsPerSecond)} eventos/seg (OTIMIZADO)`
-          }
-          features={
-            mode === 'before'
-              ? [
-                  "🔴 Throttling: DESABILITADO (1ms)",
-                  "🔴 Filtros: DESABILITADOS",
-                  "🔴 Batching: DESABILITADO", 
-                  "🔴 500+ eventos por segundo",
-                  "🔴 Duplicatas frequentes",
-                  "🔴 Performance degradada",
-                  "🔴 CPU usage alto",
-                  "🔴 Lag perceptível"
-                ]
-              : [
-                  "🟢 Throttling: ATIVO (100ms)",
-                  "🟢 Filtros: TODOS ATIVOS",
-                  "🟢 Batching: ATIVO (15 events)",
-                  "🟢 10-50 eventos por segundo",
-                  "🟢 Zero duplicatas",
-                  "🟢 Performance consistente",
-                  "🟢 CPU usage baixo",
-                  "🟢 60 FPS fluidos"
-                ]
-          }
-          color={mode === 'before' ? '#ff3300' : '#00aa00'}
-        />
-        
-        <div
-          style={{
-            position: 'absolute',
-            top: '10px',
-            right: '10px',
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            color: 'white',
-            padding: '12px',
-            borderRadius: '6px',
-            fontSize: '11px',
-            zIndex: 1000,
-            border: `1px solid ${mode === 'before' ? '#ff3300' : '#00aa00'}`,
-          }}
-        >
-          <h4 style={{ margin: '0 0 8px 0', color: mode === 'before' ? '#ff3300' : '#00aa00' }}>
-            📊 Comparação
-          </h4>
-          <div><strong>Eventos:</strong> {eventStats.count}</div>
-          <div><strong>Por segundo:</strong> {Math.round(eventsPerSecond)}</div>
-          <div style={{ margin: '8px 0' }}>
-            <button
-              onClick={() => {
-                setMode(mode === 'before' ? 'after' : 'before');
-                setEventStats({ count: 0, startTime: Date.now() });
-              }}
-              style={{
-                padding: '6px 12px',
-                border: 'none',
-                borderRadius: '4px',
-                backgroundColor: mode === 'before' ? '#00aa00' : '#ff3300',
-                color: 'white',
-                cursor: 'pointer',
-                fontSize: '10px',
-                width: '100%',
-              }}
-            >
-              {mode === 'before' ? '🟢 Ver DEPOIS' : '🔴 Ver ANTES'}
-            </button>
+        <div style={{
+          width: '320px',
+          background: '#1a1a1a',
+          color: 'white',
+          padding: '15px',
+          borderLeft: '1px solid #333',
+          fontFamily: 'monospace',
+          fontSize: '12px',
+        }}>
+          <h3 style={{ color: '#ff6b6b', margin: '0 0 15px 0' }}>
+            ⚔️ Estado do Jogo
+          </h3>
+          
+          <div style={{ marginBottom: '15px', padding: '10px', background: '#2a2a2a', borderRadius: '4px' }}>
+            <div>🏆 Turno: {gameState.turn}</div>
+            <div>👤 {gameState.player}</div>
+            <div>💰 Ouro: {gameState.resources.gold}</div>
+            <div>🎖️ Unidades: {gameState.resources.units}</div>
           </div>
-          <div style={{ fontSize: '9px', color: '#aaa' }}>
-            💡 Arraste tiles para testar
+
+          {gameState.selectedUnit && (
+            <div style={{ marginBottom: '15px', padding: '10px', background: '#2a4a2a', borderRadius: '4px' }}>
+              <div style={{ color: '#4fc3f7', fontWeight: 'bold' }}>🎯 Selecionado:</div>
+              <div>{gameState.selectedUnit.metadata?.label}</div>
+              <div style={{ fontSize: '10px', color: '#aaa', marginTop: '5px' }}>
+                ATK: {gameState.selectedUnit.metadata?.properties?.attack} | 
+                DEF: {gameState.selectedUnit.metadata?.properties?.defense} |
+                MOV: {gameState.selectedUnit.metadata?.properties?.movement}
+              </div>
+            </div>
+          )}
+          
+          <h4 style={{ color: '#4fc3f7', margin: '15px 0 10px 0' }}>📜 Log de Batalha</h4>
+          <div style={{
+            background: '#0a0a0a',
+            padding: '10px',
+            borderRadius: '4px',
+            maxHeight: '250px',
+            overflowY: 'auto',
+            fontSize: '10px',
+            lineHeight: '1.4',
+          }}>
+            {events.length === 0 ? (
+              <div style={{ color: '#666' }}>Aguardando ações...</div>
+            ) : (
+              events.map((event, index) => (
+                <div key={index} style={{
+                  color: index === 0 ? '#4fc3f7' : '#ccc',
+                  opacity: Math.max(0.4, 1 - (index * 0.05)),
+                  marginBottom: '2px',
+                }}>
+                  {event}
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -1246,137 +462,174 @@ export const PerformanceComparison: Story = {
   parameters: {
     docs: {
       description: {
-        story:
-          '⚡ **Comparação de Performance** mostra o impacto das otimizações:\n\n' +
-          '**ANTES (sem otimizações):**\n' +
-          '```typescript\n' +
-          'const beforeConfig = {\n' +
-          '  eventOptimization: {\n' +
-          '    throttling: { dragMove: 1 },     // Sem throttling\n' +
-          '    filtering: { enableAll: false }, // Sem filtros\n' +
-          '    batching: { enable: false },     // Sem batching\n' +
-          '  }\n' +
-          '};\n' +
-          '```\n\n' +
-          '**DEPOIS (com otimizações):**\n' +
-          '```typescript\n' +
-          'const afterConfig = {\n' +
-          '  eventOptimization: {\n' +
-          '    throttling: { dragMove: 100 },   // Throttling ativo\n' +
-          '    filtering: { enableAll: true },  // Filtros ativos\n' +
-          '    batching: { enable: true },      // Batching ativo\n' +
-          '  }\n' +
-          '};\n' +
-          '```\n\n' +
-          '**Resultados:**\n' +
-          '- 🔴 **ANTES**: 500+ eventos/segundo, lag visível, CPU alto\n' +
-          '- 🟢 **DEPOIS**: 10-50 eventos/segundo, 60 FPS, CPU baixo\n' +
-          '- 📈 **Melhoria**: 90% redução de eventos, performance 10x melhor\n\n' +
-          'Use o botão para alternar entre as configurações e teste arrastando tiles!',
-      },
-    },
-  },
+        story: `
+### ⚔️ Exemplo: Jogo de Estratégia
+
+Demonstra como usar a biblioteca para um jogo de estratégia militar:
+
+**Funcionalidades:**
+- **Recrutamento**: Arrastar unidades do inventário gasta ouro
+- **Seleção**: Clicar em unidades mostra estatísticas  
+- **Movimentação**: Arrastar unidades no board para reposicionar
+- **Estado do Jogo**: Interface mostra recursos e informações
+- **Sistema de Custo**: Cada unidade tem custo em ouro
+
+**Tipos de Unidade:**
+- **Guerreiro** ⚔️: Combate corpo-a-corpo (ATK: 5, DEF: 3, MOV: 2)
+- **Arqueiro** 🏹: Ataque à distância (ATK: 4, DEF: 1, MOV: 3, Alcance: 3)  
+- **Castelo** 🏰: Estrutura defensiva (DEF: 10, HP: 50)
+
+**Controles:**
+- Arrastar do inventário = Recrutar unidade
+- Arrastar no board = Mover unidade
+- Clique esquerdo = Selecionar
+- Clique direito = Ver estatísticas
+        `
+      }
+    }
+  }
 };
 
-// ==================== STORY 11: EXEMPLO REAL - GAME ====================
-
-/**
- * 🎮 **Exemplo Real: Game** - Configuração para jogos em tempo real
- */
-export const RealWorldGame: Story = {
+export const CityBuilding: Story = {
+  name: '🏗️ City Building',
   args: {
-    boardWidth: 64,
-    boardHeight: 64,
+    boardWidth: 12,
+    boardHeight: 10,
+    availableTiles: [...gameTiles.terrain, ...gameTiles.resources],
   },
-  render: ({ boardWidth, boardHeight }) => {
-    const gameConfig: Partial<CompleteIsoBoardConfiguration> = {
-      performance: {
-        eventOptimization: {
-          throttling: {
-            dragMove: 16,        // 60fps para responsividade
-            tileHover: 33,       // 30fps para hover
-            cameraMove: 16,      // 60fps para camera suave
-            dragValidation: 16,  // Validação em tempo real
-          },
-          priorities: {
-            high: ['tile-placed', 'tile-removed', 'drag-start', 'drag-end', 'error'],
-            medium: ['tile-selected', 'camera-zoom'],
-            low: ['tile-hover', 'camera-move', 'performance-update'],
-          },
-          batching: {
-            enableBatching: true,
-            batchSize: 5,        // Batches pequenos para responsividade
-            batchInterval: 16,   // 60fps
-          }
+  render: (args) => {
+    const [events, setEvents] = React.useState<string[]>([]);
+    const [resources, setResources] = React.useState({
+      wood: 10,
+      stone: 5,
+      gold: 100,
+      population: 0
+    });
+    
+    const addEvent = (message: string) => {
+      const timestamp = new Date().toLocaleTimeString();
+      setEvents(prev => [`[${timestamp}] ${message}`, ...prev.slice(0, 12)]);
+    };
+
+    const validatePlacement = (event: any) => {
+      const tile = event.draggedTile;
+      const nearbyTiles = event.nearbyTiles || [];
+      
+      if (tile.type === 'resource') {
+        // Recursos precisam de terreno adequado
+        const hasGoodTerrain = nearbyTiles.some((nearby: any) => 
+          nearby.tile.type === 'terrain' && nearby.tile.metadata?.properties?.fertile
+        );
+        
+        if (hasGoodTerrain) {
+          addEvent(`✅ Local adequado para ${tile.metadata?.label}`);
+        } else {
+          addEvent(`⚠️ ${tile.metadata?.label} precisa de terreno fértil próximo`);
         }
-      },
-      interaction: {
-        enableDragAndDrop: true,
-        enableMultiSelection: true,
-        dragThreshold: 3,        // Threshold baixo para precisão
-        clickThreshold: 150,     // Cliques rápidos
       }
     };
 
     return (
-      <div style={{ width: '100vw', height: '100vh', margin: 0, padding: 0, overflow: 'hidden', position: 'relative' }}>
-        <IsoBoardCanvas 
-          boardWidth={boardWidth} 
-          boardHeight={boardHeight}
-          config={gameConfig}
-          theme="DARK"
-          components={{
-            controlsPanel: { enabled: true },
-            realtimeDisplay: { 
-              enabled: true, 
-              updateInterval: 500,
-              showFPS: true,
-            },
-          }}
-          onTileEvent={(event) => console.log('🎮 Game Tile:', event)}
-          onDragEvent={(event) => console.log('🎯 Game Drag:', event)}
-          onPerformanceEvent={(event) => console.log('⚡ Game Performance:', event)}
-        />
+      <div style={{ width: '100%', height: '100vh', display: 'flex' }}>
+        <div style={{ flex: 1 }}>
+          <IsoBoardCanvas
+            {...args}
+            onTilePlaced={(event) => {
+              const tile = event.tile;
+              const rate = tile.metadata?.properties?.extractionRate || 0;
+              
+              if (tile.type === 'resource') {
+                addEvent(`🏗️ ${tile.metadata?.label} construído em (${event.boardX}, ${event.boardY})`);
+                addEvent(`📈 +${rate}/turno de ${tile.metadata?.label.toLowerCase()}`);
+              } else if (tile.type === 'terrain') {
+                addEvent(`🌍 Terreno ${tile.metadata?.label} colocado`);
+              }
+            }}
+            onTileProximity={validatePlacement}
+            onTileClick={(event) => {
+              if (event.button === 'right') {
+                const tile = event.tile;
+                const props = tile.metadata?.properties;
+                
+                if (tile.type === 'resource') {
+                  addEvent(`📊 ${tile.metadata?.label}: Valor ${props?.value}, Taxa ${props?.extractionRate}/turno`);
+                } else if (tile.type === 'terrain') {
+                  addEvent(`🗺️ ${tile.metadata?.label}: Custo movimento ${props?.movementCost}, Construível: ${props?.buildable ? 'Sim' : 'Não'}`);
+                }
+              }
+            }}
+            onDragStart={(event) => {
+              addEvent(`🎯 Planejando: ${event.tile.metadata?.label}`);
+            }}
+            components={{
+              controlsPanel: { enabled: true, showPosition: true },
+              tileInfoPopup: { showOnHover: true, showProperties: true, showDescription: true }
+            }}
+          />
+        </div>
         
-        <InfoPanel
-          title="🎮 Exemplo Real: Game"
-          description="Configuração otimizada para jogos em tempo real com responsividade máxima, multi-seleção e controles precisos."
-          boardSize={`${boardWidth}×${boardHeight} (${(boardWidth * boardHeight).toLocaleString()} tiles)`}
-          performance="60 FPS, latência mínima"
-          features={[
-            "🎯 Responsividade máxima (16ms)",
-            "⚡ 60 FPS consistentes garantidos",
-            "🎮 Multi-seleção de tiles ativa",
-            "🎨 Tema escuro para gaming",
-            "⌨️ Controles por teclado completos",
-            "📊 FPS monitor em tempo real",
-            "🎚️ Prioridades otimizadas para jogos",
-            "🚀 Latência mínima de input"
-          ]}
-          color="#bb86fc"
-        />
-        
-        <div
-          style={{
-            position: 'absolute',
-            bottom: '10px',
-            left: '10px',
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            color: 'white',
-            padding: '12px',
-            borderRadius: '6px',
-            fontSize: '11px',
-            zIndex: 1000,
-            border: '1px solid #bb86fc',
-          }}
-        >
-          <h4 style={{ margin: '0 0 6px 0', color: '#bb86fc' }}>🎮 Controles de Game</h4>
-          <div style={{ fontSize: '10px', lineHeight: '1.3' }}>
-            <div><strong>WASD:</strong> Navegar mapa</div>
-            <div><strong>Shift:</strong> Movimento rápido</div>
-            <div><strong>Ctrl+Click:</strong> Multi-seleção</div>
-            <div><strong>Space:</strong> Centralizar</div>
-            <div><strong>+/-:</strong> Zoom rápido</div>
+        <div style={{
+          width: '320px',
+          background: '#1a1a1a',
+          color: 'white',
+          padding: '15px',
+          borderLeft: '1px solid #333',
+          fontFamily: 'monospace',
+          fontSize: '12px',
+        }}>
+          <h3 style={{ color: '#4fc3f7', margin: '0 0 15px 0' }}>
+            🏗️ Cidade
+          </h3>
+          
+          <div style={{ marginBottom: '15px', padding: '10px', background: '#2a2a2a', borderRadius: '4px' }}>
+            <div style={{ color: '#8B4513' }}>🪵 Madeira: {resources.wood}</div>
+            <div style={{ color: '#808080' }}>🗿 Pedra: {resources.stone}</div>
+            <div style={{ color: '#FFD700' }}>💰 Ouro: {resources.gold}</div>
+            <div style={{ color: '#87CEEB' }}>👥 População: {resources.population}</div>
+          </div>
+
+          <div style={{ marginBottom: '15px', padding: '10px', background: '#2a4a2a', borderRadius: '4px' }}>
+            <div style={{ color: '#4fc3f7', fontWeight: 'bold', marginBottom: '8px' }}>
+              📋 Guia de Construção
+            </div>
+            <div style={{ fontSize: '10px', lineHeight: '1.4', color: '#ccc' }}>
+              • 🌱 Grama: Terreno básico para construção
+              <br />
+              • 🌊 Água: Navegação, não construível
+              <br />
+              • ⛰️ Montanha: Defesa +2, não construível
+              <br />
+              • 🪵 Madeira: +2/turno, precisa terreno fértil
+              <br />
+              • 🗿 Pedra: +1/turno, qualquer terreno
+              <br />
+              • 💰 Ouro: +1/turno, muito valioso
+            </div>
+          </div>
+          
+          <h4 style={{ color: '#4fc3f7', margin: '15px 0 10px 0' }}>📜 Log de Construção</h4>
+          <div style={{
+            background: '#0a0a0a',
+            padding: '10px',
+            borderRadius: '4px',
+            maxHeight: '200px',
+            overflowY: 'auto',
+            fontSize: '10px',
+            lineHeight: '1.4',
+          }}>
+            {events.length === 0 ? (
+              <div style={{ color: '#666' }}>Comece construindo...</div>
+            ) : (
+              events.map((event, index) => (
+                <div key={index} style={{
+                  color: index === 0 ? '#4fc3f7' : '#ccc',
+                  opacity: Math.max(0.4, 1 - (index * 0.05)),
+                  marginBottom: '2px',
+                }}>
+                  {event}
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -1385,155 +638,207 @@ export const RealWorldGame: Story = {
   parameters: {
     docs: {
       description: {
-        story:
-          '🎮 **Exemplo Real: Game** - Configuração para jogos:\n\n' +
-          '```typescript\n' +
-          'const gameConfig = {\n' +
-          '  performance: {\n' +
-          '    eventOptimization: {\n' +
-          '      throttling: {\n' +
-          '        dragMove: 16,        // 60fps\n' +
-          '        tileHover: 33,       // 30fps\n' +
-          '        cameraMove: 16,      // 60fps\n' +
-          '      },\n' +
-          '      priorities: {\n' +
-          '        high: ["tile-placed", "drag-start"],\n' +
-          '        low: ["tile-hover", "performance-update"],\n' +
-          '      },\n' +
-          '      batching: {\n' +
-          '        batchSize: 5,        // Pequenos\n' +
-          '        batchInterval: 16,   // 60fps\n' +
-          '      }\n' +
-          '    }\n' +
-          '  },\n' +
-          '  interaction: {\n' +
-          '    enableMultiSelection: true,\n' +
-          '    dragThreshold: 3,        // Precisão\n' +
-          '    clickThreshold: 150,     // Rapidez\n' +
-          '  }\n' +
-          '};\n' +
-          '```\n\n' +
-          '**Características:**\n' +
-          '- Responsividade máxima para competitividade\n' +
-          '- Multi-seleção para estratégia\n' +
-          '- Tema dark para reduzir fadiga visual\n' +
-          '- FPS monitor para debug de performance\n' +
-          '- Controles otimizados para gaming',
-      },
-    },
-  },
+        story: `
+### 🏗️ Exemplo: City Building
+
+Demonstra mecânicas de construção de cidade com validação de terreno:
+
+**Funcionalidades:**
+- **Terrenos**: Diferentes tipos com propriedades únicas
+- **Recursos**: Cada recurso tem taxa de extração e valor
+- **Validação**: Sistema de proximidade valida colocação adequada
+- **Economia**: Interface mostra recursos acumulados
+- **Categorias**: Inventário organizado por tipo
+
+**Sistema de Terreno:**
+- **Grama** 🌱: Construível, fértil para agricultura
+- **Água** 🌊: Naval, não construível
+- **Montanha** ⛰️: Defensivo, não construível
+
+**Sistema de Recursos:**
+- **Madeira** 🪵: Renovável, precisa terreno fértil
+- **Pedra** 🗿: Finito, qualquer terreno
+- **Ouro** 💰: Valioso, raro
+        `
+      }
+    }
+  }
 };
 
-// ==================== STORY 12: EXEMPLO REAL - APLICAÇÃO CORPORATIVA ====================
-
-/**
- * 🏢 **Exemplo Real: Corporativo** - Setup para aplicações empresariais
- */
-export const RealWorldCorporate: Story = {
+export const ProximityValidation: Story = {
+  name: '🔗 Sistema de Proximidade',
   args: {
-    boardWidth: 120,
-    boardHeight: 80,
+    boardWidth: 8,
+    boardHeight: 6,
+    availableTiles: gameTiles.strategy,
   },
-  render: ({ boardWidth, boardHeight }) => {
-    const corporateConfig: Partial<CompleteIsoBoardConfiguration> = {
-      performance: {
-        eventOptimization: {
-          throttling: {
-            dragMove: 150,           // Moderado para estabilidade
-            tileHover: 300,          // Hover menos frequente
-            performanceUpdate: 10000, // Updates espaçados
-          },
-          monitoring: {
-            enableEventMetrics: true,
-            enablePerformanceAlerts: true,
-            alertThresholds: {
-              eventsPerSecond: 200,
-              queueSize: 150,
-              memoryUsage: 100,      // 100MB threshold
-            }
-          },
-          batching: {
-            enableBatching: true,
-            batchSize: 20,           // Batches grandes
-            batchInterval: 50,       // 20fps suficiente
-          }
-        }
-      },
-      interaction: {
-        preventContextMenu: true,    // Prevenir menu de contexto
-        dragThreshold: 8,            // Threshold maior para estabilidade
-      }
+  render: (args) => {
+    const [events, setEvents] = React.useState<string[]>([]);
+    const [proximityData, setProximityData] = React.useState<any>(null);
+    const [validationFeedback, setValidationFeedback] = React.useState<string>('');
+    
+    const addEvent = (message: string) => {
+      const timestamp = new Date().toLocaleTimeString();
+      setEvents(prev => [`[${timestamp}] ${message}`, ...prev.slice(0, 10)]);
     };
 
     return (
-      <div style={{ width: '100vw', height: '100vh', margin: 0, padding: 0, overflow: 'hidden', position: 'relative' }}>
-        <IsoBoardCanvas 
-          boardWidth={boardWidth} 
-          boardHeight={boardHeight}
-          config={corporateConfig}
-          theme="LIGHT"
-          components={{
-            controlsPanel: { enabled: true },
-            realtimeDisplay: { 
-              enabled: true,
-              updateInterval: 5000,
-              showMemoryUsage: true,
-            },
-            tileInfoPopup: {
-              enabled: true,
-              showOnRightClick: true,
-              showProperties: true,
-              showDescription: true,
-            }
-          }}
-          onPerformanceWarning={(event) => console.warn('🏢 Corporate Warning:', event)}
-          onError={(event) => console.error('🚨 Corporate Error:', event)}
-          eventConfig={{
-            enablePerformanceEvents: true,
-            enableErrorEvents: true,
-          }}
-        />
+      <div style={{ width: '100%', height: '100vh', display: 'flex' }}>
+        <div style={{ flex: 1 }}>
+          <IsoBoardCanvas
+            {...args}
+            onTileProximity={(event) => {
+              setProximityData(event);
+              const nearbyCount = event.nearbyTiles.length;
+              const adjacentCount = event.nearbyTiles.filter(t => t.distance <= 1.5).length;
+              
+              addEvent(`🔗 Proximidade: ${nearbyCount} tiles próximos, ${adjacentCount} adjacentes`);
+              
+              if (event.proximityType === 'adjacent') {
+                setValidationFeedback('✅ Posição estratégica - tiles adjacentes encontrados');
+              } else if (nearbyCount > 0) {
+                setValidationFeedback('⚠️ Posição com apoio - tiles próximos');
+              } else {
+                setValidationFeedback('❌ Posição isolada - sem apoio próximo');
+              }
+            }}
+            onPositionValidation={(event) => {
+              if (event.type === 'position-validation-request') {
+                addEvent(`🔍 Validando posição (${event.targetPosition.x}, ${event.targetPosition.y})`);
+                
+                // Simular resposta de validação
+                setTimeout(() => {
+                  const nearbyCount = event.nearbyTiles.length;
+                  const isValid = nearbyCount > 0;
+                  
+                  // Simular resposta
+                  setValidationFeedback(
+                    isValid 
+                      ? '✅ Posição aprovada pelo sistema' 
+                      : '❌ Posição rejeitada - isolada demais'
+                  );
+                }, 200);
+              }
+            }}
+            onTilePlaced={(event) => {
+              addEvent(`🎮 ${event.tile.metadata?.label} colocado em (${event.boardX}, ${event.boardY})`);
+              setValidationFeedback('');
+              setProximityData(null);
+            }}
+            onDragStart={(event) => {
+              addEvent(`🎯 Iniciando validação para ${event.tile.metadata?.label}`);
+            }}
+            onDragEnd={(event) => {
+              if (!event.success) {
+                addEvent(`❌ Colocação cancelada`);
+                setValidationFeedback('');
+                setProximityData(null);
+              }
+            }}
+            components={{
+              controlsPanel: { enabled: true },
+              tileInfoPopup: { showOnHover: true }
+            }}
+          />
+        </div>
         
-        <InfoPanel
-          title="🏢 Exemplo Real: Corporativo"
-          description="Configuração para aplicações empresariais com foco em estabilidade, monitoramento robusto e interface profissional."
-          boardSize={`${boardWidth}×${boardHeight} (${(boardWidth * boardHeight).toLocaleString()} tiles)`}
-          performance="Estável e monitorado"
-          features={[
-            "📊 Monitoramento de memória ativo",
-            "🚨 Alertas de performance configurados",
-            "🔒 Menu de contexto prevenido",
-            "📈 Métricas de longo prazo (10s)",
-            "🎨 Tema claro profissional",
-            "📋 Popups informativos completos",
-            "⚖️ Balance estabilidade/performance",
-            "🛡️ Error handling empresarial"
-          ]}
-          color="#1976d2"
-        />
-        
-        <div
-          style={{
-            position: 'absolute',
-            bottom: '10px',
-            right: '10px',
-            backgroundColor: 'rgba(255, 255, 255, 0.9)',
-            color: '#333',
-            padding: '12px',
-            borderRadius: '6px',
-            fontSize: '11px',
-            zIndex: 1000,
-            border: '1px solid #1976d2',
-            minWidth: '200px',
-          }}
-        >
-          <h4 style={{ margin: '0 0 6px 0', color: '#1976d2' }}>📊 Métricas Corporativas</h4>
-          <div style={{ fontSize: '10px', lineHeight: '1.4' }}>
-            <div><strong>✅ Conformidade:</strong> SOC 2 Type II</div>
-            <div><strong>🔒 Segurança:</strong> HTTPS Only</div>
-            <div><strong>📈 Uptime:</strong> 99.9% SLA</div>
-            <div><strong>📊 Monitoring:</strong> 24/7</div>
-            <div><strong>🛡️ Backup:</strong> Automático</div>
+        <div style={{
+          width: '350px',
+          background: '#1a1a1a',
+          color: 'white',
+          padding: '15px',
+          borderLeft: '1px solid #333',
+          fontFamily: 'monospace',
+          fontSize: '12px',
+        }}>
+          <h3 style={{ color: '#ff9800', margin: '0 0 15px 0' }}>
+            🔗 Sistema de Proximidade
+          </h3>
+          
+          {validationFeedback && (
+            <div style={{ 
+              marginBottom: '15px', 
+              padding: '10px', 
+              background: validationFeedback.includes('✅') ? '#1b5e20' : 
+                         validationFeedback.includes('⚠️') ? '#e65100' : '#b71c1c',
+              borderRadius: '4px',
+              border: '1px solid #333'
+            }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>🎯 Validação Ativa:</div>
+              <div style={{ fontSize: '11px' }}>{validationFeedback}</div>
+            </div>
+          )}
+          
+          {proximityData && (
+            <div style={{ marginBottom: '15px', padding: '10px', background: '#2a2a2a', borderRadius: '4px' }}>
+              <div style={{ color: '#ff9800', fontWeight: 'bold', marginBottom: '8px' }}>
+                📊 Análise de Proximidade
+              </div>
+              <div style={{ fontSize: '11px', lineHeight: '1.4' }}>
+                <div>🎯 Tile: {proximityData.draggedTile.metadata?.label}</div>
+                <div>📍 Posição: ({proximityData.targetPosition.x}, {proximityData.targetPosition.y})</div>
+                <div>📏 Raio: {proximityData.radius} tiles</div>
+                <div>🔗 Tipo: {proximityData.proximityType === 'adjacent' ? 'Adjacente' : 'Próximo'}</div>
+                <div style={{ marginTop: '8px', color: '#ff9800' }}>
+                  🗂️ Tiles Próximos ({proximityData.nearbyTiles.length}):
+                </div>
+                {proximityData.nearbyTiles.map((tile: any, index: number) => (
+                  <div key={index} style={{
+                    fontSize: '10px',
+                    color: '#ccc',
+                    marginLeft: '8px',
+                    marginTop: '3px',
+                    padding: '2px 0',
+                    borderBottom: '1px solid #333'
+                  }}>
+                    • {tile.tile.metadata?.label} 
+                    <span style={{ color: '#888' }}> - {tile.distance.toFixed(1)} tiles</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          <div style={{ marginBottom: '15px', padding: '10px', background: '#2a4a2a', borderRadius: '4px' }}>
+            <div style={{ color: '#ff9800', fontWeight: 'bold', marginBottom: '8px' }}>
+              📋 Como Funciona
+            </div>
+            <div style={{ fontSize: '10px', lineHeight: '1.4', color: '#ccc' }}>
+              1. **Arraste** um tile sobre o board
+              <br />
+              2. **Sistema detecta** tiles próximos automaticamente
+              <br />
+              3. **Validação** roda em tempo real
+              <br />
+              4. **Feedback visual** mostra resultado
+              <br />
+              5. **Eventos** permitem lógica customizada
+            </div>
+          </div>
+          
+          <h4 style={{ color: '#ff9800', margin: '15px 0 10px 0' }}>📜 Log de Proximidade</h4>
+          <div style={{
+            background: '#0a0a0a',
+            padding: '10px',
+            borderRadius: '4px',
+            maxHeight: '200px',
+            overflowY: 'auto',
+            fontSize: '10px',
+            lineHeight: '1.4',
+          }}>
+            {events.length === 0 ? (
+              <div style={{ color: '#666' }}>Arraste um tile para testar...</div>
+            ) : (
+              events.map((event, index) => (
+                <div key={index} style={{
+                  color: index === 0 ? '#ff9800' : '#ccc',
+                  opacity: Math.max(0.4, 1 - (index * 0.05)),
+                  marginBottom: '2px',
+                }}>
+                  {event}
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -1542,43 +847,260 @@ export const RealWorldCorporate: Story = {
   parameters: {
     docs: {
       description: {
-        story:
-          '🏢 **Exemplo Real: Corporativo** - Setup empresarial:\n\n' +
-          '```typescript\n' +
-          'const corporateConfig = {\n' +
-          '  performance: {\n' +
-          '    eventOptimization: {\n' +
-          '      throttling: {\n' +
-          '        dragMove: 150,           // Estabilidade\n' +
-          '        performanceUpdate: 10000, // Monitoramento\n' +
-          '      },\n' +
-          '      monitoring: {\n' +
-          '        enableEventMetrics: true,\n' +
-          '        enablePerformanceAlerts: true,\n' +
-          '        alertThresholds: {\n' +
-          '          memoryUsage: 100,      // 100MB\n' +
-          '          eventsPerSecond: 200,\n' +
-          '        }\n' +
-          '      },\n' +
-          '      batching: {\n' +
-          '        batchSize: 20,           // Eficiência\n' +
-          '        batchInterval: 50,       // 20fps\n' +
-          '      }\n' +
-          '    }\n' +
-          '  },\n' +
-          '  interaction: {\n' +
-          '    preventContextMenu: true,    // Segurança\n' +
-          '    dragThreshold: 8,            // Estabilidade\n' +
-          '  }\n' +
-          '};\n' +
-          '```\n\n' +
-          '**Características Empresariais:**\n' +
-          '- Monitoramento contínuo de recursos\n' +
-          '- Alertas proativos de performance\n' +
-          '- Interface profissional e acessível\n' +
-          '- Error handling robusto e logging\n' +
-          '- Configurações de segurança ativas',
-      },
-    },
-  },
+        story: `
+### 🔗 Sistema de Proximidade e Validação
+
+Demonstra o sistema avançado de detecção de proximidade e validação:
+
+**Funcionalidades:**
+- **Detecção Automática**: Detecta tiles próximos durante o drag
+- **Raio Configurável**: Define distância para detecção
+- **Tipos de Proximidade**: Adjacent (≤1.5) vs Nearby (>1.5)
+- **Validação em Tempo Real**: Feedback instantâneo durante drag
+- **Eventos Customizáveis**: \`onTileProximity\` e \`onPositionValidation\`
+
+**Eventos do Sistema:**
+- **onTileProximity**: Disparado quando tiles próximos são detectados
+- **onPositionValidation**: Permite validação customizada de posições
+- **Feedback Visual**: Interface mostra resultado da validação
+
+**Casos de Uso:**
+- Jogos de estratégia com formações
+- Sistemas de construção com requisitos
+- Mecânicas de influência territorial
+- Validação de posicionamento de unidades
+        `
+      }
+    }
+  }
 };
+
+export const CompleteGameDemo: Story = {
+  name: '🎮 Demo Completo',
+  args: {
+    boardWidth: 15,
+    boardHeight: 12,
+    availableTiles: [...gameTiles.strategy, ...gameTiles.terrain, ...gameTiles.resources],
+  },
+  render: (args) => {
+    const [events, setEvents] = React.useState<string[]>([]);
+    const [selectedTile, setSelectedTile] = React.useState<any>(null);
+    const [gameMode, setGameMode] = React.useState<'build' | 'battle' | 'resource'>('build');
+    
+    const addEvent = (message: string) => {
+      const timestamp = new Date().toLocaleTimeString();
+      setEvents(prev => [`[${timestamp}] ${message}`, ...prev.slice(0, 8)]);
+    };
+
+    const modeConfig = {
+      build: { color: '#4fc3f7', icon: '🏗️', name: 'Construção' },
+      battle: { color: '#f44336', icon: '⚔️', name: 'Batalha' },
+      resource: { color: '#4caf50', icon: '💰', name: 'Recursos' }
+    };
+
+    return (
+      <div style={{ width: '100%', height: '100vh', display: 'flex' }}>
+        <div style={{ flex: 1 }}>
+          <IsoBoardCanvas
+            {...args}
+            onTilePlaced={(event) => {
+              addEvent(`✨ ${event.tile.metadata?.label} colocado`);
+            }}
+            onTileClick={(event) => {
+              setSelectedTile({
+                tile: event.tile,
+                position: { x: event.boardX, y: event.boardY },
+                timestamp: Date.now()
+              });
+              addEvent(`👆 Selecionado: ${event.tile.metadata?.label}`);
+            }}
+            onDragStart={(event) => {
+              const mode = event.tile.type === 'unit' ? 'battle' : 
+                          event.tile.type === 'resource' ? 'resource' : 'build';
+              setGameMode(mode);
+              addEvent(`🎯 Modo: ${modeConfig[mode].name}`);
+            }}
+            onTileProximity={(event) => {
+              const count = event.nearbyTiles.length;
+              if (count > 2) {
+                addEvent(`🏘️ Área desenvolvida detectada (${count} tiles)`);
+              }
+            }}
+            onCameraMove={(event) => {
+              if (event.type === 'camera-move-end') {
+                addEvent(`📷 Câmera reposicionada`);
+              }
+            }}
+            onDragEnd={(event) => {
+              if (event.success) {
+                addEvent(`✅ Ação ${modeConfig[gameMode].name.toLowerCase()} concluída`);
+              }
+            }}
+            components={{
+              controlsPanel: { 
+                enabled: true,
+                showPosition: true,
+                showZoom: true,
+                showBookmarks: true
+              },
+              tileInfoPopup: { 
+                showOnHover: true, 
+                showProperties: true, 
+                showDescription: true 
+              },
+              realtimeDisplay: { 
+                enabled: true,
+                showFPS: true,
+                showTileCount: true
+              }
+            }}
+          />
+        </div>
+        
+        <div style={{
+          width: '350px',
+          background: '#1a1a1a',
+          color: 'white',
+          padding: '15px',
+          borderLeft: '1px solid #333',
+          fontFamily: 'monospace',
+          fontSize: '12px',
+        }}>
+          <h3 style={{ color: '#00ff00', margin: '0 0 15px 0' }}>
+            🎮 Demo Completo
+          </h3>
+          
+          <div style={{ 
+            marginBottom: '15px', 
+            padding: '10px', 
+            background: modeConfig[gameMode].color + '20',
+            borderRadius: '4px',
+            border: `1px solid ${modeConfig[gameMode].color}`
+          }}>
+            <div style={{ color: modeConfig[gameMode].color, fontWeight: 'bold' }}>
+              {modeConfig[gameMode].icon} Modo: {modeConfig[gameMode].name}
+            </div>
+            <div style={{ fontSize: '10px', color: '#ccc', marginTop: '5px' }}>
+              {gameMode === 'build' && 'Construa terrenos e estruturas'}
+              {gameMode === 'battle' && 'Posicione e mova unidades'}
+              {gameMode === 'resource' && 'Gerencie recursos e economia'}
+            </div>
+          </div>
+
+          {selectedTile && (
+            <div style={{ marginBottom: '15px', padding: '10px', background: '#2a2a2a', borderRadius: '4px' }}>
+              <div style={{ color: '#ffeb3b', fontWeight: 'bold', marginBottom: '5px' }}>
+                🎯 Tile Selecionado
+              </div>
+              <div>{selectedTile.tile.metadata?.label}</div>
+              <div style={{ fontSize: '10px', color: '#ccc' }}>
+                Posição: ({selectedTile.position.x}, {selectedTile.position.y})
+              </div>
+              <div style={{ fontSize: '10px', color: '#ccc' }}>
+                Tipo: {selectedTile.tile.type}
+              </div>
+              {selectedTile.tile.metadata?.properties && (
+                <div style={{ marginTop: '5px', fontSize: '10px' }}>
+                  {Object.entries(selectedTile.tile.metadata.properties).map(([key, value]) => (
+                    <div key={key} style={{ color: '#aaa' }}>
+                      {key}: {String(value)}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          
+          <div style={{ marginBottom: '15px', padding: '10px', background: '#2a4a2a', borderRadius: '4px' }}>
+            <div style={{ color: '#00ff00', fontWeight: 'bold', marginBottom: '8px' }}>
+              🛠️ Funcionalidades Ativas
+            </div>
+            <div style={{ fontSize: '10px', lineHeight: '1.6', color: '#ccc' }}>
+              ✅ Drag & Drop completo
+              <br />
+              ✅ Sistema de proximidade
+              <br />
+              ✅ Validação em tempo real
+              <br />
+              ✅ Controles de câmera
+              <br />
+              ✅ Inventário categorizado
+              <br />
+              ✅ Popups informativos
+              <br />
+              ✅ Display de performance
+              <br />
+              ✅ Sistema de eventos
+            </div>
+          </div>
+          
+          <h4 style={{ color: '#00ff00', margin: '15px 0 10px 0' }}>📜 Eventos Recentes</h4>
+          <div style={{
+            background: '#0a0a0a',
+            padding: '10px',
+            borderRadius: '4px',
+            maxHeight: '180px',
+            overflowY: 'auto',
+            fontSize: '10px',
+            lineHeight: '1.4',
+          }}>
+            {events.length === 0 ? (
+              <div style={{ color: '#666' }}>Interaja com o jogo...</div>
+            ) : (
+              events.map((event, index) => (
+                <div key={index} style={{
+                  color: index === 0 ? '#00ff00' : '#ccc',
+                  opacity: Math.max(0.4, 1 - (index * 0.05)),
+                  marginBottom: '2px',
+                }}>
+                  {event}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: `
+### 🎮 Demo Completo da IsoBoardLib
+
+Esta story demonstra todas as funcionalidades da biblioteca integradas:
+
+**🎯 Funcionalidades Principais:**
+- **Drag & Drop**: Sistema completo de arrastar e soltar
+- **Movimentação**: Mover tiles já posicionados no board  
+- **Seleção**: Sistema de seleção com feedback visual
+- **Proximidade**: Detecção automática de tiles próximos
+- **Validação**: Sistema de validação em tempo real
+- **Eventos**: Captura todos os eventos do jogo
+- **Câmera**: Controles completos de pan e zoom
+- **Performance**: Monitoramento em tempo real
+
+**🎨 Interface Completa:**
+- **Inventário**: Organizado por categorias com busca
+- **Controles**: Panel com bookmarks e informações
+- **Popups**: Informativos com propriedades detalhadas
+- **Performance**: Display de FPS e contadores
+- **Estado**: Interface reativa ao estado do jogo
+
+**🎮 Tipos de Jogo Suportados:**
+- Jogos de estratégia militar
+- City builders e simuladores
+- Jogos de recursos e economia
+- Puzzles e quebra-cabeças isométricos
+- RPGs táticos
+
+**⚡ Performance:**
+- Viewport culling para boards grandes
+- Throttling inteligente de eventos
+- Spatial indexing para consultas rápidas
+- Otimização automática baseada no zoom
+        `
+      }
+    }
+  }
+}; 

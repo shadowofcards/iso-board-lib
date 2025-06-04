@@ -112,6 +112,62 @@ export interface DragEndEvent extends DragEventData {
   action: 'place' | 'replace' | 'cancel' | 'return';
 }
 
+// 🔧 NOVOS EVENTOS DE PROXIMIDADE E VALIDAÇÃO
+
+export interface ProximityEventData extends EventContext {
+  draggedTile: TileData;
+  targetPosition: BoardPosition;
+  nearbyTiles: Array<{
+    tile: TileData;
+    position: BoardPosition;
+    distance: number;
+    direction: 'north' | 'south' | 'east' | 'west' | 'northeast' | 'northwest' | 'southeast' | 'southwest';
+  }>;
+  radius: number;
+}
+
+export interface TileProximityEvent extends ProximityEventData {
+  type: 'tile-proximity-detected' | 'tile-proximity-lost';
+  proximityType: 'adjacent' | 'nearby' | 'influence-zone';
+}
+
+export interface PositionValidationEvent extends EventContext {
+  type: 'position-validation-request' | 'position-validation-response';
+  draggedTile: TileData;
+  targetPosition: BoardPosition;
+  nearbyTiles: Array<{ tile: TileData; position: BoardPosition; distance: number }>;
+  // Response fields (para position-validation-response)
+  validationResult?: {
+    isValid: boolean;
+    canPlace: boolean;
+    feedback: 'positive' | 'negative' | 'neutral' | 'blocked';
+    benefits?: Array<{
+      type: string; // 🔧 AGNÓSTICO: pode ser qualquer string
+      description: string;
+      value?: number;
+      source?: TileData;
+    }>;
+    penalties?: Array<{
+      type: string; // 🔧 AGNÓSTICO: pode ser qualquer string
+      description: string;
+      value?: number;
+      source?: TileData;
+    }>;
+    suggestions?: Array<{
+      position: BoardPosition;
+      reason: string;
+      score: number;
+    }>;
+    visualFeedback?: {
+      icon: 'plus' | 'minus' | 'blocked' | 'warning' | 'info' | 'star' | 'chain';
+      color: string;
+      animation?: 'pulse' | 'glow' | 'shake' | 'bounce';
+      showRange?: boolean;
+      rangeColor?: string;
+    };
+  };
+}
+
 // ==================== EVENTOS DE CÂMERA ====================
 
 export interface CameraEventData extends EventContext {
@@ -272,6 +328,10 @@ export type IsoBoardEvent =
   | DragMoveEvent
   | DragEndEvent
   
+  // 🔧 NOVOS: Proximity & Validation events
+  | TileProximityEvent
+  | PositionValidationEvent
+  
   // Camera events
   | CameraMoveEvent
   | CameraZoomEvent
@@ -387,6 +447,10 @@ export interface IsoBoardEventProps {
   onDragMove?: EventListener<DragMoveEvent>;
   onDragEnd?: EventListener<DragEndEvent>;
   
+  // 🔧 NOVOS: Proximity & Validation listeners
+  onTileProximity?: EventListener<TileProximityEvent>;
+  onPositionValidation?: EventListener<PositionValidationEvent>;
+  
   onCameraMove?: EventListener<CameraMoveEvent>;
   onCameraZoom?: EventListener<CameraZoomEvent>;
   onCameraAnimation?: EventListener<CameraAnimationEvent>;
@@ -406,7 +470,7 @@ export interface IsoBoardEventProps {
   
   // Event listeners de grupo
   onTileEvent?: EventListener<TilePlacedEvent | TileRemovedEvent | TileSelectedEvent | TileDeselectedEvent | TileHoverEvent | TileClickEvent | TilePopupEvent>;
-  onDragEvent?: EventListener<DragStartEvent | DragMoveEvent | DragEndEvent>;
+  onDragEvent?: EventListener<DragStartEvent | DragMoveEvent | DragEndEvent | TileProximityEvent | PositionValidationEvent>;
   onCameraEvent?: EventListener<CameraMoveEvent | CameraZoomEvent | CameraAnimationEvent>;
   onBoardEvent?: EventListener<BoardInitializedEvent | BoardClearedEvent | BoardResizedEvent | BoardStateChangedEvent>;
   onSelectionEvent?: EventListener<SelectionChangedEvent | SelectionAreaEvent>;

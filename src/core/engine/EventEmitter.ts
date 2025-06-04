@@ -362,6 +362,31 @@ export class BoardEventEmitter implements IsoBoardEventEmitter {
     });
   }
 
+  // 🔧 NOVOS: Métodos para eventos de proximidade e validação
+  emitTileProximity(data: Omit<import('../types/Events').TileProximityEvent, 'type' | 'timestamp'>): void {
+    this.emit({
+      type: data.proximityType === 'adjacent' ? 'tile-proximity-detected' : 'tile-proximity-detected',
+      timestamp: Date.now(),
+      ...data,
+    } as import('../types/Events').TileProximityEvent);
+  }
+
+  emitPositionValidationRequest(data: Omit<import('../types/Events').PositionValidationEvent, 'type' | 'timestamp'>): void {
+    this.emit({
+      type: 'position-validation-request',
+      timestamp: Date.now(),
+      ...data,
+    } as import('../types/Events').PositionValidationEvent);
+  }
+
+  emitPositionValidationResponse(data: Omit<import('../types/Events').PositionValidationEvent, 'type' | 'timestamp'>): void {
+    this.emit({
+      type: 'position-validation-response',
+      timestamp: Date.now(),
+      ...data,
+    } as import('../types/Events').PositionValidationEvent);
+  }
+
   emitError(error: Error, severity: 'low' | 'medium' | 'high' | 'critical' = 'medium', context?: Record<string, any>): void {
     this.emit({
       type: 'error',

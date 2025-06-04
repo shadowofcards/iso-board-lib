@@ -15,7 +15,18 @@ export const PreviewOverlay: React.FC<PreviewOverlayProps> = ({ dragState }) => 
     return null;
   }
 
-  const { x, y } = dragState.ghostPos;
+  let { x, y } = dragState.ghostPos;
+  
+  // 🔧 CORREÇÃO: Ao invés de retornar null, usar valores padrão para NaN
+  if (typeof x !== 'number' || isNaN(x)) {
+    console.warn('[PreviewOverlay] x inválido:', x, '- usando 0');
+    x = 0;
+  }
+  if (typeof y !== 'number' || isNaN(y)) {
+    console.warn('[PreviewOverlay] y inválido:', y, '- usando 0');
+    y = 0;
+  }
+  
   const hexColor = dragState.tile.color.toString(16).padStart(6, '0');
   const label = dragState.tile.metadata?.label || dragState.tile.type;
 
