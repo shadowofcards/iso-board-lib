@@ -19,6 +19,7 @@ import type {
 import type { IsoBoardEventProps } from '../core/types/Events';
 import { DEFAULT_CONFIG, THEMES } from '../core/types/Configuration';
 import { AVAILABLE_TILES } from '../core/constants';
+import { __DEV__ } from '../core/config';
 
 // ==================== INTERFACE COMPLETA ====================
 
@@ -157,6 +158,21 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
     const apiRef = useRef<IsoBoardCanvasAPI | null>(null);
     const eventEmitterRef = useRef<BoardEventEmitter | null>(null);
     
+    // 🔧 CORREÇÃO: Controle de eventos para evitar duplicatas e excesso
+    const dragEventStateRef = useRef({
+      isDragStartEmitted: false,
+      lastValidPosition: null as { x: number; y: number } | null,
+      lastMoveEmitTime: 0,
+      dragSource: null as 'inventory' | 'board' | null,
+    });
+    
+    const eventThrottleRef = useRef({
+      dragMove: 0,
+      tileHover: 0,
+    });
+    
+    // ==================== CONFIGURAÇÃO DINÂMICA ====================
+    
     // Estado para configuração combinada
     const [currentConfig, setCurrentConfig] = useState<CompleteIsoBoardConfiguration>(() => {
       const config = {
@@ -210,25 +226,25 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
     }, [components]);
     
     // Estados dos componentes
-    const [tileInfoPopup, setTileInfoPopup] = useState<{
-      tile: TileData;
-      position: { x: number; y: number };
-    } | null>(null);
+  const [tileInfoPopup, setTileInfoPopup] = useState<{
+    tile: TileData;
+    position: { x: number; y: number };
+  } | null>(null);
 
-    const [hoveredTile, setHoveredTile] = useState<{
-      tile: TileData;
-      position: { x: number; y: number };
-    } | null>(null);
+  const [hoveredTile, setHoveredTile] = useState<{
+    tile: TileData;
+    position: { x: number; y: number };
+  } | null>(null);
 
     const [showRealtimeDisplay, setShowRealtimeDisplay] = useState(
       components.realtimeDisplay?.enabled ?? false
     );
     
-    const [visibleTiles, setVisibleTiles] = useState<Array<{ x: number; y: number; tile: TileData }>>([]);
+  const [visibleTiles, setVisibleTiles] = useState<Array<{ x: number; y: number; tile: TileData }>>([]);
     
     // ==================== HOOKS ====================
 
-    const { boardManager, dragController, cameraModel } = useBoardController({
+  const { boardManager, dragController, cameraModel } = useBoardController({
         width: currentConfig.board?.width || boardWidth,
         height: currentConfig.board?.height || boardHeight,
       });
@@ -350,6 +366,35 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
       }
     }, [currentConfig.camera, cameraModel]);
     
+    // 🔧 NOVO: Configuração de throttling dinâmica baseada na config do usuário
+    const throttleConfig = useMemo(() => {
+      const eventOpt = currentConfig.performance?.eventOptimization;
+      return {
+        dragMove: eventOpt?.throttling?.dragMove ?? 100,
+        dragHover: eventOpt?.throttling?.dragHover ?? 150,
+        dragValidation: eventOpt?.throttling?.dragValidation ?? 50,
+        tileHover: eventOpt?.throttling?.tileHover ?? 150,
+        tileSelection: eventOpt?.throttling?.tileSelection ?? 100,
+        cameraMove: eventOpt?.throttling?.cameraMove ?? 50,
+        cameraZoom: eventOpt?.throttling?.cameraZoom ?? 100,
+        performanceUpdate: eventOpt?.throttling?.performanceUpdate ?? 1000,
+        performanceWarning: eventOpt?.throttling?.performanceWarning ?? 5000,
+        boardStateChange: eventOpt?.throttling?.boardStateChange ?? 200,
+        visibleTilesUpdate: eventOpt?.throttling?.visibleTilesUpdate ?? 100,
+      };
+    }, [currentConfig.performance?.eventOptimization]);
+    
+    // 🔧 NOVO: Configuração de monitoramento dinâmica
+    const monitoringConfig = useMemo(() => {
+      const eventOpt = currentConfig.performance?.eventOptimization;
+      return {
+        enableEventMetrics: eventOpt?.monitoring?.enableEventMetrics ?? false,
+        enableThrottleLogging: eventOpt?.monitoring?.enableThrottleLogging ?? (__DEV__ && false),
+        enablePerformanceAlerts: eventOpt?.monitoring?.enablePerformanceAlerts ?? true,
+        maxEventQueueSize: eventOpt?.monitoring?.maxEventQueueSize ?? 1000,
+      };
+    }, [currentConfig.performance?.eventOptimization]);
+    
     // ==================== EVENT HANDLERS - OTIMIZADOS ====================
     
     const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -380,11 +425,30 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
     }, []); // 🔧 Dependências vazias - usa refs para acessar estado atual
     
     const handleTileHover = useCallback((tile: TileData | null, position: { x: number; y: number } | null) => {
+      // 🔧 CORREÇÃO: Throttling para hover events
+      const now = Date.now();
+      const lastEmit = eventThrottleRef.current.tileHover;
+      const timeDiff = now - lastEmit;
+      
+      // Debug do throttling
+      if (__DEV__ && timeDiff < throttleConfig.tileHover) {
+        console.debug(`[Throttling] Bloqueado tile-hover: ${timeDiff}ms < ${throttleConfig.tileHover}ms`);
+      }
+      
+      if (timeDiff < throttleConfig.tileHover) return;
+      
+      // Atualizar timestamp apenas quando emitir
+      eventThrottleRef.current.tileHover = now;
+      
       if (tile && position) {
         setHoveredTile({ tile, position });
         
         // Emitir evento de hover
         if (eventEmitterRef.current) {
+          if (__DEV__) {
+            console.debug(`[TileHover] Emitindo hover-start para tile: ${tile.id} em (${Math.floor(position.x)}, ${Math.floor(position.y)})`);
+          }
+          
           eventEmitterRef.current.emit({
             type: 'tile-hover-start',
             timestamp: Date.now(),
@@ -396,6 +460,10 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
       } else {
         setHoveredTile(prev => {
           if (prev && eventEmitterRef.current) {
+            if (__DEV__) {
+              console.debug(`[TileHover] Emitindo hover-end para tile: ${prev.tile.id}`);
+            }
+            
             eventEmitterRef.current.emit({
               type: 'tile-hover-end',
               timestamp: Date.now(),
@@ -408,13 +476,13 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
           return null;
         });
       }
-    }, []); // 🔧 Dependências vazias - usa refs para acessar estado atual
+    }, []);
 
     const handleClosePopup = useCallback(() => {
       setTileInfoPopup(null);
     }, []);
     
-    // ==================== COORDINATE CONVERSION ====================
+    // ==================== COORDINATE CONVERSION E VALIDAÇÃO ====================
 
     const convertToWorldCoords = useCallback((clientX: number, clientY: number) => {
       if (!phaserGameRef.current || !containerRef.current) {
@@ -434,16 +502,65 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
       return { worldX, worldY };
     }, []);
     
+    // 🔧 NOVA FUNÇÃO: Verificar se posição é válida para drop e se mudou significativamente
+    const checkValidDropPosition = useCallback((worldX: number, worldY: number) => {
+      if (!phaserGameRef.current) return null;
+      
+      const scene = phaserGameRef.current.scene.getScene('IsoScene') as any;
+      if (!scene) return null;
+      
+      // Obter offsets atuais da scene
+      const cam = scene.cameras.main;
+      const zoom = cam.zoom;
+      
+      // Calcular offsets dinamicamente (similar ao IsoScene)
+      const offsetX = (cam.width * 0.5) / zoom;
+      const offsetY = (cam.height * 0.5) / zoom;
+      
+      // Converter para coordenadas locais do board
+      const localX = worldX - offsetX;
+      const localY = worldY - offsetY;
+      
+      // Aproximação para tile usando a lógica isométrica
+      // Esta é uma simplificação - no IsoScene usa screenToTileWithSnap
+      const tileSize = 128; // TILE_SIZE
+      const tileHeight = 64; // TILE_HEIGHT
+      
+      // Conversão isométrica aproximada
+      const tempX = (localX / (tileSize / 2)) + (localY / (tileHeight / 2));
+      const tempY = (localY / (tileHeight / 2)) - (localX / (tileSize / 2));
+      
+      const tileX = Math.floor(tempX / 2);
+      const tileY = Math.floor(tempY / 2);
+      
+      // Verificar se está dentro dos bounds do board
+      const isValid = tileX >= 0 && tileX < boardWidth && tileY >= 0 && tileY < boardHeight;
+      
+      if (__DEV__) {
+        console.debug(`[ValidPosition] world(${worldX.toFixed(1)}, ${worldY.toFixed(1)}) -> local(${localX.toFixed(1)}, ${localY.toFixed(1)}) -> tile(${tileX}, ${tileY}) valid=${isValid}`);
+      }
+      
+      return { tileX, tileY, isValid };
+    }, [boardWidth, boardHeight]);
+    
     // ==================== DRAG HANDLERS - CORRIGIDO E OTIMIZADO ====================
 
     const handleInventoryDragStart = useCallback(
       (tile: TileData, e: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
         if (currentConfigRef.current.interaction?.enableDragAndDrop === false) return;
         
+        // 🔧 CORREÇÃO: Evitar drag-start duplicado
+        if (dragEventStateRef.current.isDragStartEmitted) return;
+        
         e.preventDefault();
         const { worldX, worldY } = convertToWorldCoords(e.clientX, e.clientY);
         onDragStateStart(tile, { x: e.clientX, y: e.clientY });
         dragController.startDrag(tile, { x: worldX, y: worldY });
+        
+        // Marcar drag como iniciado e fonte
+        dragEventStateRef.current.isDragStartEmitted = true;
+        dragEventStateRef.current.dragSource = 'inventory';
+        dragEventStateRef.current.lastValidPosition = null;
         
         // Emitir evento via EventEmitter
         if (eventEmitterRef.current) {
@@ -463,6 +580,9 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
       (tile: TileData, boardX: number, boardY: number, e: { clientX: number; clientY: number }) => {
         if (currentConfigRef.current.interaction?.enableDragAndDrop === false) return;
         
+        // 🔧 CORREÇÃO: Evitar drag-start duplicado
+        if (dragEventStateRef.current.isDragStartEmitted) return;
+        
         // 🔧 CORREÇÃO DO BUG: Não usar startDragOperation que limpa o board
         // Simplesmente remove o tile específico sem recriar o board
         boardManager.removeTile(boardX, boardY);
@@ -470,6 +590,11 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
         const { worldX, worldY } = convertToWorldCoords(e.clientX, e.clientY);
         onDragStateStart(tile, { x: e.clientX, y: e.clientY });
         dragController.startDrag(tile, { x: worldX, y: worldY });
+        
+        // Marcar drag como iniciado e fonte
+        dragEventStateRef.current.isDragStartEmitted = true;
+        dragEventStateRef.current.dragSource = 'board';
+        dragEventStateRef.current.lastValidPosition = null;
         
         // Emitir evento via EventEmitter
         if (eventEmitterRef.current) {
@@ -486,68 +611,144 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
       [boardManager, convertToWorldCoords, onDragStateStart, dragController] // 🔧 Dependências estáveis
     );
     
-    // ==================== WINDOW EVENTS ====================
+    // ==================== WINDOW EVENTS - CORRIGIDOS ====================
 
     const handleWindowMouseMove = useCallback(
       (e: MouseEvent) => {
-        if (dragState.isDragging) {
+        if (dragState.isDragging && dragEventStateRef.current.isDragStartEmitted) {
           e.preventDefault();
           const { worldX, worldY } = convertToWorldCoords(e.clientX, e.clientY);
-            onDragStateMove({ x: e.clientX, y: e.clientY });
+          onDragStateMove({ x: e.clientX, y: e.clientY });
           dragController.updateDrag({ x: worldX, y: worldY });
-            
-            // Emitir evento via EventEmitter
-            if (eventEmitterRef.current && dragState.tile && dragState.ghostPos) {
-              const startPos = dragState.ghostPos;
-              eventEmitterRef.current.emitDragMove({
-                tile: dragState.tile,
-                startPosition: startPos,
-                currentPosition: { x: e.clientX, y: e.clientY },
-                dragDistance: Math.hypot(
-                  e.clientX - startPos.x,
-                  e.clientY - startPos.y
-                ),
-                isValidTarget: true,
-                canPlace: true,
-              });
+          
+          // 🔧 CORREÇÃO: Throttling inteligente para drag-move
+          const now = Date.now();
+          const lastEmit = eventThrottleRef.current.dragMove;
+          const timeDiff = now - lastEmit;
+          
+          // Debug do throttling (apenas se habilitado na configuração)
+          if (timeDiff < throttleConfig.dragMove) {
+            if (monitoringConfig.enableThrottleLogging) {
+              console.debug(`[THROTTLING] Bloqueando drag-move: ${timeDiff}ms < ${throttleConfig.dragMove}ms`);
             }
+            return;
           }
-        },
-        [dragController, dragState, onDragStateMove, convertToWorldCoords]
+          
+          // 🔧 CORREÇÃO: Verificar se está em posição válida antes de emitir
+          const validPosition = checkValidDropPosition(worldX, worldY);
+          
+          // Só emitir se estiver em posição válida OU se mudou significativamente de válida para inválida
+          const lastValid = dragEventStateRef.current.lastValidPosition;
+          const shouldEmit = validPosition?.isValid || 
+                           (lastValid && !validPosition?.isValid) || 
+                           !lastValid;
+          
+          if (!shouldEmit) {
+            if (monitoringConfig.enableThrottleLogging) {
+              console.debug(`[VALIDATION] Posição inválida ignorada: tile(${validPosition?.tileX}, ${validPosition?.tileY})`);
+            }
+            return;
+          }
+          
+          // Atualizar timestamp do throttling APENAS quando emitir
+          eventThrottleRef.current.dragMove = now;
+          
+          if (eventEmitterRef.current && dragState.tile && dragState.ghostPos) {
+            const startPos = dragState.ghostPos;
+            
+            // Atualizar última posição válida
+            if (validPosition?.isValid) {
+              dragEventStateRef.current.lastValidPosition = {
+                x: validPosition.tileX,
+                y: validPosition.tileY,
+              };
+            }
+            
+            // Debug de emissão (apenas se habilitado)
+            if (monitoringConfig.enableThrottleLogging) {
+              console.debug(`[DRAG-MOVE] Emitindo: isValid=${validPosition?.isValid}, tile(${validPosition?.tileX}, ${validPosition?.tileY})`);
+            }
+            
+            eventEmitterRef.current.emitDragMove({
+              tile: dragState.tile,
+              startPosition: startPos,
+              currentPosition: { x: e.clientX, y: e.clientY },
+              dragDistance: Math.hypot(
+                e.clientX - startPos.x,
+                e.clientY - startPos.y
+              ),
+              isValidTarget: validPosition?.isValid || false,
+              canPlace: validPosition?.isValid || false,
+              targetBoardPosition: validPosition?.isValid ? {
+                x: validPosition.tileX,
+                y: validPosition.tileY,
+              } : undefined,
+            });
+          }
+        }
+      },
+      [dragController, dragState, onDragStateMove, convertToWorldCoords, checkValidDropPosition]
     );
 
     const handleWindowMouseUp = useCallback(
       (e: MouseEvent) => {
-        if (dragState.isDragging) {
+        if (dragState.isDragging && dragEventStateRef.current.isDragStartEmitted) {
           const { worldX, worldY } = convertToWorldCoords(e.clientX, e.clientY);
-            onDragStateEnd();
+          onDragStateEnd();
+          
+          const success = dragController.endDrag({ x: worldX, y: worldY });
+          
+          // 🔧 CORREÇÃO: Só emitir drag-end se drag-start foi emitido e ainda não foi finalizado
+          if (eventEmitterRef.current && dragState.tile && dragState.ghostPos) {
+            const startPos = dragState.ghostPos;
+            const validPosition = checkValidDropPosition(worldX, worldY);
             
-            const success = dragController.endDrag({ x: worldX, y: worldY });
+            if (__DEV__) {
+              console.debug(`[DragEnd] success=${success}, validPosition=${validPosition?.isValid}, tile(${validPosition?.tileX}, ${validPosition?.tileY})`);
+            }
             
-            // 🔧 CORREÇÃO DO BUG: Não usar endDragOperation que pode recriar o board
-            // O sucesso ou falha do drag já é tratado pelo dragController.endDrag
+            eventEmitterRef.current.emitDragEnd({
+              tile: dragState.tile,
+              startPosition: startPos,
+              currentPosition: { x: e.clientX, y: e.clientY },
+              dragDistance: Math.hypot(
+                e.clientX - startPos.x,
+                e.clientY - startPos.y
+              ),
+              success,
+              action: success ? 'place' : 'cancel',
+              targetBoardPosition: success && validPosition?.isValid ? {
+                x: validPosition.tileX,
+                y: validPosition.tileY,  
+              } : undefined,
+            });
             
-            // Emitir evento via EventEmitter
-            if (eventEmitterRef.current && dragState.tile && dragState.ghostPos) {
-              const startPos = dragState.ghostPos;
-              eventEmitterRef.current.emitDragEnd({
+            // 🔧 NOVO: Emitir tile-placed quando tile é efetivamente colocado
+            if (success && validPosition?.isValid) {
+              if (__DEV__) {
+                console.debug(`[TilePlaced] Emitindo tile-placed para tile(${validPosition.tileX}, ${validPosition.tileY})`);
+              }
+              
+              eventEmitterRef.current.emitTilePlaced({
                 tile: dragState.tile,
-                startPosition: startPos,
-                currentPosition: { x: e.clientX, y: e.clientY },
-                dragDistance: Math.hypot(
-                  e.clientX - startPos.x,
-                  e.clientY - startPos.y
-                ),
-                success,
-                action: success ? 'place' : 'cancel',
+                boardX: validPosition.tileX,
+                boardY: validPosition.tileY,
+                isReplace: false,
               });
             }
           }
-        },
-        [dragController, dragState, onDragStateEnd, convertToWorldCoords]
-      );
+          
+          // 🔧 CORREÇÃO: Resetar estado de drag para evitar duplicatas
+          dragEventStateRef.current.isDragStartEmitted = false;
+          dragEventStateRef.current.dragSource = null;
+          dragEventStateRef.current.lastValidPosition = null;
+          dragEventStateRef.current.lastMoveEmitTime = 0;
+        }
+      },
+      [dragController, dragState, onDragStateEnd, convertToWorldCoords, checkValidDropPosition]
+    );
       
-    // ==================== EFFECTS ====================
+    // ==================== EFFECTS - CORRIGIDOS ====================
 
     useEffect(() => {
       if (dragState.isDragging) {
@@ -555,7 +756,16 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
         document.body.style.webkitUserSelect = 'none';
         window.addEventListener('mousemove', handleWindowMouseMove);
         window.addEventListener('mouseup', handleWindowMouseUp);
+      } else {
+        // 🔧 CORREÇÃO: Resetar estado quando drag termina
+        if (dragEventStateRef.current.isDragStartEmitted) {
+          dragEventStateRef.current.isDragStartEmitted = false;
+          dragEventStateRef.current.dragSource = null;
+          dragEventStateRef.current.lastValidPosition = null;
+          dragEventStateRef.current.lastMoveEmitTime = 0;
+        }
       }
+      
       return () => {
         document.body.style.userSelect = '';
         document.body.style.webkitUserSelect = '';
@@ -564,9 +774,22 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
       };
     }, [dragState.isDragging, handleWindowMouseMove, handleWindowMouseUp]);
 
+    // 🔧 NOVO: Cleanup de eventos na desmontagem
+    useEffect(() => {
+      return () => {
+        // Resetar todos os estados de eventos na desmontagem
+        dragEventStateRef.current.isDragStartEmitted = false;
+        dragEventStateRef.current.dragSource = null;
+        dragEventStateRef.current.lastValidPosition = null;
+        dragEventStateRef.current.lastMoveEmitTime = 0;
+        eventThrottleRef.current.dragMove = 0;
+        eventThrottleRef.current.tileHover = 0;
+      };
+    }, []);
+
     // Atualizar tiles visíveis em tempo real
     useEffect(() => {
-        if (!phaserGameRef.current || !showRealtimeDisplay) return;
+      if (!phaserGameRef.current || !showRealtimeDisplay) return;
 
       const updateVisibleTiles = () => {
         const scene = phaserGameRef.current?.scene.getScene('IsoScene') as any;
@@ -577,28 +800,28 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
       };
 
       updateVisibleTiles();
-        const interval = setInterval(updateVisibleTiles, components.realtimeDisplay?.updateInterval || 100);
+      const interval = setInterval(updateVisibleTiles, components.realtimeDisplay?.updateInterval || 100);
 
       return () => clearInterval(interval);
-      }, [phaserGameRef.current, showRealtimeDisplay, components.realtimeDisplay]);
+    }, [phaserGameRef.current, showRealtimeDisplay, components.realtimeDisplay]);
 
     // ==================== PHASER INITIALIZATION - CORRIGIDO ====================
-    
+
     // 🔧 CORREÇÃO: Função de inicialização estável para evitar recriação
     const initializePhaser = useCallback(() => {
       if (!containerRef.current) return null;
 
-      const isoScene = new IsoScene({
+    const isoScene = new IsoScene({
         boardConfig: { 
           width: boardWidth, 
           height: boardHeight 
         },
-        boardManager,
-        dragController,
-        cameraModel,
-        onTileDragStart: handleBoardTileDragStart,
-        onTileInfo: handleTileInfo,
-        onTileHover: handleTileHover,
+      boardManager,
+      dragController,
+      cameraModel,
+      onTileDragStart: handleBoardTileDragStart,
+      onTileInfo: handleTileInfo,
+      onTileHover: handleTileHover,
         onReadyCallback: () => {
           onReady?.();
           
@@ -614,25 +837,25 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
             });
           }
         },
-      });
+    });
 
-      const game = new Phaser.Game({
-        type: Phaser.AUTO,
-        parent: containerRef.current,
-        width: containerRef.current.clientWidth,
-        height: containerRef.current.clientHeight,
-        transparent: true,
+    const game = new Phaser.Game({
+      type: Phaser.AUTO,
+      parent: containerRef.current,
+      width: containerRef.current.clientWidth,
+      height: containerRef.current.clientHeight,
+      transparent: true,
         backgroundColor: '#1a1a1a',
-        scene: [isoScene],
-        scale: {
-          mode: Phaser.Scale.RESIZE,
-          autoCenter: Phaser.Scale.CENTER_BOTH,
-        },
-        render: {
-          pixelArt: true,
-          antialias: false,
-        },
-      });
+      scene: [isoScene],
+      scale: {
+        mode: Phaser.Scale.RESIZE,
+        autoCenter: Phaser.Scale.CENTER_BOTH,
+      },
+      render: {
+        pixelArt: true,
+        antialias: false,
+      },
+    });
 
       return game;
     }, [
@@ -650,13 +873,13 @@ export const IsoBoardCanvas = React.forwardRef<IsoBoardCanvasAPI, IsoBoardCanvas
       const game = initializePhaser();
       if (!game) return;
 
-      phaserGameRef.current = game;
+    phaserGameRef.current = game;
 
-      return () => {
+    return () => {
         if (phaserGameRef.current) {
-          boardManager.clearBoard();
+      boardManager.clearBoard();
           phaserGameRef.current.destroy(true);
-          phaserGameRef.current = null;
+      phaserGameRef.current = null;
         }
       };
     }, [initializePhaser]);

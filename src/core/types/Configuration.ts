@@ -103,6 +103,91 @@ export interface PerformanceConfiguration {
   enableSpatialIndex?: boolean;
   maxVisibleTiles?: number;
   levelOfDetailEnabled?: boolean;
+  
+  // 🔧 NOVO: Configurações de otimização de eventos
+  eventOptimization?: EventOptimizationConfiguration;
+}
+
+// ==================== OTIMIZAÇÃO DE EVENTOS ====================
+
+export interface EventOptimizationConfiguration {
+  // Throttling de eventos (em ms)
+  throttling?: {
+    // Eventos de drag & drop
+    dragMove?: number;           // Padrão: 100ms - Frequência de drag-move events
+    dragHover?: number;          // Padrão: 150ms - Frequência de hover durante drag
+    dragValidation?: number;     // Padrão: 50ms - Frequência de validação de posição
+    
+    // Eventos de tile
+    tileHover?: number;          // Padrão: 150ms - Frequência de tile hover events
+    tileSelection?: number;      // Padrão: 100ms - Frequência de seleção múltipla
+    
+    // Eventos de câmera
+    cameraMove?: number;         // Padrão: 50ms - Frequência de camera-move events
+    cameraZoom?: number;         // Padrão: 100ms - Frequência de camera-zoom events
+    
+    // Eventos de performance
+    performanceUpdate?: number;  // Padrão: 1000ms - Frequência de performance updates
+    performanceWarning?: number; // Padrão: 5000ms - Frequência de performance warnings
+    
+    // Eventos de board
+    boardStateChange?: number;   // Padrão: 200ms - Frequência de board state changes
+    visibleTilesUpdate?: number; // Padrão: 100ms - Frequência de visible tiles updates
+  };
+  
+  // Debouncing de eventos (em ms)
+  debouncing?: {
+    boardResize?: number;        // Padrão: 300ms - Debounce de resize events
+    configChange?: number;       // Padrão: 500ms - Debounce de config changes
+    themeChange?: number;        // Padrão: 200ms - Debounce de theme changes
+    selectionArea?: number;      // Padrão: 100ms - Debounce de selection area
+  };
+  
+  // Batching de eventos
+  batching?: {
+    enableBatching?: boolean;    // Padrão: true - Habilitar batching de eventos
+    batchSize?: number;          // Padrão: 10 - Máximo de eventos por batch
+    batchInterval?: number;      // Padrão: 16ms (~60fps) - Intervalo entre batches
+    batchableEvents?: string[];  // Eventos que podem ser batcheados
+  };
+  
+  // Filtros de eventos
+  filtering?: {
+    enablePositionFilter?: boolean;     // Padrão: true - Filtrar eventos por mudança de posição
+    positionThreshold?: number;         // Padrão: 1.0 - Threshold mínimo para mudança de posição
+    enableDuplicateFilter?: boolean;    // Padrão: true - Filtrar eventos duplicados
+    duplicateTimeWindow?: number;       // Padrão: 50ms - Janela de tempo para detectar duplicatas
+    enableValidationFilter?: boolean;   // Padrão: true - Filtrar eventos de posições inválidas
+  };
+  
+  // Prioridades de eventos
+  priorities?: {
+    high?: string[];    // Eventos de alta prioridade (nunca throttled)
+    medium?: string[];  // Eventos de média prioridade (throttling normal)
+    low?: string[];     // Eventos de baixa prioridade (throttling agressivo)
+  };
+  
+  // Debug e monitoramento
+  monitoring?: {
+    enableEventMetrics?: boolean;      // Padrão: false - Coletar métricas de eventos
+    enableThrottleLogging?: boolean;   // Padrão: false - Log de eventos throttled
+    enablePerformanceAlerts?: boolean; // Padrão: true - Alertas de performance
+    maxEventQueueSize?: number;        // Padrão: 1000 - Tamanho máximo da fila de eventos
+    alertThresholds?: {
+      eventsPerSecond?: number;        // Padrão: 500 - Threshold de eventos/segundo
+      queueSize?: number;              // Padrão: 100 - Threshold de tamanho da fila
+      memoryUsage?: number;            // Padrão: 50MB - Threshold de uso de memória
+    };
+  };
+  
+  // Configurações avançadas
+  advanced?: {
+    enableEventPooling?: boolean;      // Padrão: true - Pool de objetos de evento
+    poolSize?: number;                 // Padrão: 100 - Tamanho do pool
+    enableLazyEvaluation?: boolean;    // Padrão: true - Avaliação lazy de eventos
+    enableEventCompression?: boolean;  // Padrão: false - Compressão de eventos similares
+    compressionWindow?: number;        // Padrão: 100ms - Janela para compressão
+  };
 }
 
 // ==================== VISUAL ====================
@@ -302,6 +387,103 @@ export const DEFAULT_CONFIG: IsoBoardConfiguration = {
     enableSpatialIndex: true,
     maxVisibleTiles: 10000,
     levelOfDetailEnabled: true,
+    
+    // 🔧 NOVO: Configurações padrão de otimização de eventos
+    eventOptimization: {
+      throttling: {
+        // Eventos de drag & drop
+        dragMove: 100,           // 100ms - Frequência de drag-move events
+        dragHover: 150,          // 150ms - Frequência de hover durante drag
+        dragValidation: 50,      // 50ms - Frequência de validação de posição
+        
+        // Eventos de tile
+        tileHover: 150,          // 150ms - Frequência de tile hover events
+        tileSelection: 100,      // 100ms - Frequência de seleção múltipla
+        
+        // Eventos de câmera
+        cameraMove: 50,          // 50ms - Frequência de camera-move events
+        cameraZoom: 100,         // 100ms - Frequência de camera-zoom events
+        
+        // Eventos de performance
+        performanceUpdate: 1000, // 1000ms - Frequência de performance updates
+        performanceWarning: 5000, // 5000ms - Frequência de performance warnings
+        
+        // Eventos de board
+        boardStateChange: 200,   // 200ms - Frequência de board state changes
+        visibleTilesUpdate: 100, // 100ms - Frequência de visible tiles updates
+      },
+      
+      debouncing: {
+        boardResize: 300,        // 300ms - Debounce de resize events
+        configChange: 500,       // 500ms - Debounce de config changes
+        themeChange: 200,        // 200ms - Debounce de theme changes
+        selectionArea: 100,      // 100ms - Debounce de selection area
+      },
+      
+      batching: {
+        enableBatching: true,    // Habilitar batching de eventos
+        batchSize: 10,           // Máximo de eventos por batch
+        batchInterval: 16,       // 16ms (~60fps) - Intervalo entre batches
+        batchableEvents: [
+          'drag-move',
+          'camera-move',
+          'tile-hover',
+          'performance-update',
+          'visible-tiles-update'
+        ],
+      },
+      
+      filtering: {
+        enablePositionFilter: true,     // Filtrar eventos por mudança de posição
+        positionThreshold: 1.0,         // Threshold mínimo para mudança de posição
+        enableDuplicateFilter: true,    // Filtrar eventos duplicados
+        duplicateTimeWindow: 50,        // 50ms - Janela de tempo para detectar duplicatas
+        enableValidationFilter: true,   // Filtrar eventos de posições inválidas
+      },
+      
+      priorities: {
+        high: [
+          'error',
+          'tile-placed',
+          'tile-removed',
+          'drag-start',
+          'drag-end',
+          'board-initialized'
+        ],
+        medium: [
+          'tile-selected',
+          'tile-deselected',
+          'camera-zoom',
+          'board-state-changed'
+        ],
+        low: [
+          'drag-move',
+          'tile-hover',
+          'camera-move',
+          'performance-update'
+        ],
+      },
+      
+      monitoring: {
+        enableEventMetrics: false,      // Coletar métricas de eventos
+        enableThrottleLogging: false,   // Log de eventos throttled (apenas em dev)
+        enablePerformanceAlerts: true,  // Alertas de performance
+        maxEventQueueSize: 1000,        // Tamanho máximo da fila de eventos
+        alertThresholds: {
+          eventsPerSecond: 500,         // Threshold de eventos/segundo
+          queueSize: 100,               // Threshold de tamanho da fila
+          memoryUsage: 50,              // 50MB - Threshold de uso de memória
+        },
+      },
+      
+      advanced: {
+        enableEventPooling: true,       // Pool de objetos de evento
+        poolSize: 100,                  // Tamanho do pool
+        enableLazyEvaluation: true,     // Avaliação lazy de eventos
+        enableEventCompression: false,  // Compressão de eventos similares
+        compressionWindow: 100,         // 100ms - Janela para compressão
+      },
+    },
   },
   visual: {
     showGrid: false,
