@@ -16,44 +16,83 @@ export class DragController {
   private dropListeners = new Set<(x: number, y: number, t: TileData) => void>();
   private offsets = { offsetX: 0, offsetY: 0 };
 
-  constructor(board: BoardStateManager) { this.board = board; }
+  constructor(board: BoardStateManager) {
+    this.board = board;
+  }
 
-  setOffsets(offsetX: number, offsetY: number) { this.offsets = { offsetX, offsetY }; }
+  /** Recebe os offsets calculados pelo IsoScene a cada frame */
+  setOffsets(offsetX: number, offsetY: number) {
+    this.offsets = { offsetX, offsetY };
+  }
 
+  /* --------------------------------------------------------- *
+   *                       CICLO DE DRAG                       *
+   * --------------------------------------------------------- */
   startDrag(tile: TileData, screen: { x: number; y: number }) {
+    this.board.startDragOperation();                         // 🔑
     this.state = { isDragging: true, tile, ghostPos: { ...screen } };
   }
-  updateDrag(screen: { x: number; y: number }) {
-    if (!this.state.isDragging) return;
-    this.state.ghostPos = { ...screen };
-  }
-  endDrag(screen: { x: number; y: number }): boolean {
-    if (!this.state.isDragging || !this.state.tile) { this.clear(); return false; }
 
+  updateDrag(screen: { x: number; y: number }) {
+    if (this.state.isDragging) {
+      this.state.ghostPos = { ...screen };
+    }
+  }
+
+  endDrag(screen: { x: number; y: number }): boolean {
+    if (!this.state.isDragging || !this.state.tile) {
+      this.clean();
+      return false;
+    }
+
+    /* Mouse → tile com snap */
     const snapped = screenToTileWithSnap(
       screen.x - this.offsets.offsetX,
       screen.y - this.offsets.offsetY,
-      TILE_SIZE, TILE_HEIGHT,
-      this.board.getWidth(), this.board.getHeight(),
+      TILE_SIZE,
+      TILE_HEIGHT,
+      this.board.getWidth(),
+      this.board.getHeight()
     );
-    if (!snapped) { this.clear(); return false; }
 
-    const { tile } = this.state;
+    const ok =
+      !!snapped &&
+      this.board.placeTile(snapped.tileX, snapped.tileY, this.state.tile);
+
+    /* Sempre encerra a operação para liberar o cache */
+    this.board.endDragOperation();                           // 🔑
+    const placedTile = this.state.tile;                      // guardar antes de limpar
+    this.clean();
+
     if (__DEV__) {
       // eslint-disable-next-line no-console
-      console.debug('[DragController] drop', snapped, tile.id);
+      console.debug('[DragController] drop', snapped, placedTile?.id, ok ? '✔️' : '✖️');
     }
 
-    const ok = this.board.placeTile(snapped.tileX, snapped.tileY, tile);
-    if (ok) this.dropListeners.forEach(cb => cb(snapped.tileX, snapped.tileY, tile));
-    this.clear();
+    if (ok && snapped) {
+      this.dropListeners.forEach(cb =>
+        cb(snapped.tileX, snapped.tileY, placedTile!)
+      );
+    }
+
     return ok;
   }
 
-  private clear() { this.state = { isDragging: false, tile: null, ghostPos: null }; }
+  /* --------------------------------------------------------- *
+   *                      UTILITÁRIOS                          *
+   * --------------------------------------------------------- */
+  private clean() {
+    this.state = { isDragging: false, tile: null, ghostPos: null };
+  }
 
-  getState(): DragState { return JSON.parse(JSON.stringify(this.state)); }
+  getState(): DragState {
+    return JSON.parse(JSON.stringify(this.state));
+  }
 
-  onDrop(cb: (x: number, y: number, t: TileData) => void) { this.dropListeners.add(cb); }
-  offDrop(cb: (x: number, y: number, t: TileData) => void) { this.dropListeners.delete(cb); }
+  onDrop(cb: (x: number, y: number, t: TileData) => void) {
+    this.dropListeners.add(cb);
+  }
+  offDrop(cb: (x: number, y: number, t: TileData) => void) {
+    this.dropListeners.delete(cb);
+  }
 }

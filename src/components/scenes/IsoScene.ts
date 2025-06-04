@@ -4,7 +4,7 @@ import {
   type BoardChangeListener,
 } from '../../core/engine/BoardStateManager';
 import { DragController } from '../../core/engine/DragController';
-import { Camera as CameraModel } from '../../core/models/Camera';
+import { Camera } from '../../core/models/Camera';
 
 import {
   toScreenPos,
@@ -36,13 +36,14 @@ import type { TileData } from '../../core/models/Tile';
 import {
   RERENDER_THROTTLE_MS,
   MAX_QUADS_PER_BATCH,
+  __DEV__,
 } from '../../core/config';
 
 interface IsoSceneConfig {
   boardConfig: { width: number; height: number };
   boardManager: BoardStateManager;
   dragController: DragController;
-  cameraModel: CameraModel;
+  cameraModel: Camera;
   onTileDragStart?: (
     tile: TileData,
     boardX: number,
@@ -60,39 +61,35 @@ export default class IsoScene extends Phaser.Scene {
   /* ------------------------------------------------------------------ */
   private boardManager!: BoardStateManager;
   private dragController!: DragController;
-  private cameraModel!: CameraModel;
+  private cameraModel!: Camera;
   private boardConfig!: { width: number; height: number };
 
   private graphics!: Phaser.GameObjects.Graphics;
   private gridGraphics!: Phaser.GameObjects.Graphics;
   private ghostGraphics!: Phaser.GameObjects.Graphics;
 
-  private onReadyCallback!: () => void;
+  private onReadyCallback?: () => void;
   private onTileDragStart?: (
     tile: TileData,
     boardX: number,
     boardY: number,
     e: { clientX: number; clientY: number }
   ) => void;
-  private onTileInfo?: (tile: TileData, position: { x: number; y: number }) => void;
   private onTileHover?: (tile: TileData | null, position: { x: number; y: number } | null) => void;
+  private onTileInfo?: (tile: TileData, position: { x: number; y: number }) => void;
 
   private changeListener!: BoardChangeListener;
 
   private lastVisibleRange: VisibleTileRange | null = null;
-  private lastCameraPosition: { x: number; y: number; zoom: number } | null =
-    null;
+  private lastCameraPosition: { x: number; y: number; zoom: number } | null = null;
+  private lastHoveredTile: { tile: TileData; x: number; y: number } | null = null;
 
   private lastRenderAt = 0;
-  private lastOffsets  = { offsetX: 0, offsetY: 0 };
-  private forceRedraw  = false;
+  private lastOffsets = { offsetX: 0, offsetY: 0 };
+  private forceRedraw = false;
 
-  private isLargeBoard: boolean;
   private debugText?: Phaser.GameObjects.Text;
-
-  // Novos campos para hover
-  private lastHoveredTile: { tile: TileData; x: number; y: number } | null = null;
-  private hoverCheckInterval: number = 0;
+  private isLargeBoard = false;
 
   /* ------------------------------------------------------------------ */
   /*  CONSTRUTOR                                                         */
@@ -100,65 +97,76 @@ export default class IsoScene extends Phaser.Scene {
   constructor(cfg: IsoSceneConfig) {
     super({ key: 'IsoScene' });
 
-    this.boardManager   = cfg.boardManager;
+    this.boardManager = cfg.boardManager;
     this.dragController = cfg.dragController;
-    this.cameraModel    = cfg.cameraModel;
-    this.boardConfig    = cfg.boardConfig;
+    this.cameraModel = cfg.cameraModel;
+    this.boardConfig = cfg.boardConfig;
     this.onReadyCallback = cfg.onReadyCallback;
+    this.onTileHover = cfg.onTileHover;
+    this.onTileInfo = cfg.onTileInfo;
     this.onTileDragStart = cfg.onTileDragStart;
-    this.onTileInfo      = cfg.onTileInfo;
-    this.onTileHover     = cfg.onTileHover;
 
-    this.isLargeBoard =
-      cfg.boardConfig.width * cfg.boardConfig.height > 10_000;
+    // Determinar se é um board grande
+    this.isLargeBoard = this.boardConfig.width * this.boardConfig.height > 10000;
   }
 
   /* ================================================================== */
   /*  CICLO DE VIDA                                                     */
   /* ================================================================== */
 
-  preload(): void { /* nada */ }
+  preload(): void {
+    // Nada para carregar no momento
+  }
 
   create(): void {
-    /* texto de status */
-    this.add.text(10, 10, 'Tabuleiro Isométrico Carregado!', {
-      fontSize: '16px',
-      color   : '#ffffff',
-    });
+    this.cameras.main.setBounds(0, 0, 8000, 8000);
 
-    this.debugText = this.add.text(10, 30, '', {
-      fontSize       : '12px',
-      color          : '#00ff00',
-      backgroundColor: 'rgba(0,0,0,0.6)',
-      padding        : { x: 4, y: 2 },
-    });
+    // Inicializar todos os graphics
+    this.graphics = this.add.graphics();
+    this.gridGraphics = this.add.graphics();
+    this.ghostGraphics = this.add.graphics();
 
-    /* layers */
-    this.gridGraphics  = this.add.graphics();
-    this.graphics      = this.add.graphics();
-    this.ghostGraphics = this.add.graphics().setDepth(100);
+    // Configurar debug text se em modo debug
+    if (__DEV__) {
+      this.debugText = this.add.text(10, 10, '', {
+        fontSize: '12px',
+        color: '#00ff00',
+        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+        padding: { x: 5, y: 5 },
+      });
+      this.debugText.setScrollFactor(0);
+      this.debugText.setDepth(1000);
+    }
 
-    /* offsets iniciais */
-    this.syncDragControllerOffsets(true);
-
-    if (!this.isLargeBoard) this.addExampleTiles();
-
-    /* listener de mudança no board */
-    this.changeListener = () => { this.forceRedraw = true; };
-    this.boardManager.onChange(this.changeListener);
-
-    /* render inicial */
-    this.forceInitialRender();
-
-    /* input */
+    // Configurar input handlers
     this.setupInputHandlers();
 
-    this.onReadyCallback();
+    // Registrar listener para mudanças no board
+    this.changeListener = () => {
+      this.forceRedraw = true;
+    };
+    this.boardManager.onChange(this.changeListener);
+
+    // Forçar render inicial
+    this.forceInitialRender();
+
+    // Debug: log creation
+    if (__DEV__) {
+      console.debug('[IsoScene] scene created');
+    }
+
+    // Callback para componente externo
+    if (this.onReadyCallback) {
+      this.onReadyCallback();
+    }
   }
 
   shutdown(): void {
     this.boardManager.offChange(this.changeListener);
     this.debugText?.destroy();
+    this.graphics?.destroy();
+    this.gridGraphics?.destroy();
+    this.ghostGraphics?.destroy();
   }
 
   /* ------------------------------------------------------------------ */
@@ -202,7 +210,7 @@ export default class IsoScene extends Phaser.Scene {
   private getCamCenter(): { cx: number; cy: number } {
     const cam = this.cameras.main;
     return {
-      cx: cam.scrollX + (cam.width  * 0.5) / cam.zoom,
+      cx: cam.scrollX + (cam.width * 0.5) / cam.zoom,
       cy: cam.scrollY + (cam.height * 0.5) / cam.zoom,
     };
   }
@@ -212,7 +220,7 @@ export default class IsoScene extends Phaser.Scene {
   /* ================================================================== */
 
   private setupInputHandlers(): void {
-    /* drag fantasma move */
+    // Drag fantasma move
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
       if (this.dragController.getState().isDragging) {
         this.dragController.updateDrag({ x: p.worldX, y: p.worldY });
@@ -222,33 +230,31 @@ export default class IsoScene extends Phaser.Scene {
       }
     });
 
-    /* mouse up → finaliza drag */
-    this.input.on('pointerup', (p: Phaser.Input.Pointer) => {
-      const st = this.dragController.getState();
-      if (st.isDragging && st.tile) {
-        this.dragController.endDrag({ x: p.worldX, y: p.worldY });
-      }
-    });
-
-    /* pointer down */
+    // Clique direito para informações do tile
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      if (this.dragController.getState().isDragging) return;
-
-      const clicked = this.findTileAtPositionOptimized(p.worldX, p.worldY);
-
-      // Remover lógica de clique direito e manter apenas clique esquerdo para drag
-      if (p.leftButtonDown()) {
-        if (clicked && this.onTileDragStart) {
-          const r = this.game.canvas.getBoundingClientRect();
-          this.onTileDragStart(clicked.tile, clicked.x, clicked.y, {
-            clientX: p.x + r.left,
-            clientY: p.y + r.top,
+      if (p.rightButtonDown()) {
+        const tile = this.findTileAtPositionOptimized(p.worldX, p.worldY);
+        if (tile && this.onTileInfo) {
+          const rect = this.game.canvas.getBoundingClientRect();
+          this.onTileInfo(tile.tile, {
+            x: p.x + rect.left,
+            y: p.y + rect.top,
+          });
+        }
+      } else if (p.leftButtonDown()) {
+        // Clique esquerdo em tile do board para arrastar
+        const tile = this.findTileAtPositionOptimized(p.worldX, p.worldY);
+        if (tile && this.onTileDragStart) {
+          const rect = this.game.canvas.getBoundingClientRect();
+          this.onTileDragStart(tile.tile, tile.x, tile.y, {
+            clientX: p.x + rect.left,
+            clientY: p.y + rect.top,
           });
         }
       }
     });
 
-    /* detectar quando mouse sai do canvas para limpar hover */
+    // Limpar hover quando o ponteiro sai da área
     this.input.on('pointerout', () => {
       this.clearTileHover();
     });
@@ -269,7 +275,7 @@ export default class IsoScene extends Phaser.Scene {
     if (!this.forceRedraw && this.shouldThrottle(now)) return;
     this.lastRenderAt = now;
 
-    const cam  = this.cameras.main;
+    const cam = this.cameras.main;
     const zoom = cam.zoom;
 
     const { cx, cy } = this.getCamCenter();
@@ -292,7 +298,7 @@ export default class IsoScene extends Phaser.Scene {
       );
 
       const lastZoom = this.lastCameraPosition?.zoom ?? 0;
-      const changed  =
+      const changed =
         this.forceRedraw ||
         hasSignificantViewportChange(
           visible, this.lastVisibleRange, zoom, lastZoom
@@ -300,7 +306,7 @@ export default class IsoScene extends Phaser.Scene {
 
       if (!changed) { this.forceRedraw = false; return; }
 
-      this.lastVisibleRange  = visible;
+      this.lastVisibleRange = visible;
       this.lastCameraPosition = { x: boardCx, y: boardCy, zoom };
 
       const q: SpatialQuery = {
@@ -318,8 +324,8 @@ export default class IsoScene extends Phaser.Scene {
         this.forceRedraw ||
         !this.lastCameraPosition ||
         Math.abs(this.lastCameraPosition.zoom - zoom) > 0.002 ||
-        Math.abs(this.lastCameraPosition.x - boardCx)   > 8 ||
-        Math.abs(this.lastCameraPosition.y - boardCy)   > 8;
+        Math.abs(this.lastCameraPosition.x - boardCx) > 8 ||
+        Math.abs(this.lastCameraPosition.y - boardCy) > 8;
 
       if (!changed) { this.forceRedraw = false; return; }
 
@@ -331,9 +337,9 @@ export default class IsoScene extends Phaser.Scene {
       if (shouldRenderGrid(zoom, lod)) {
         const full: VisibleTileRange = {
           startX: 0,
-          endX  : this.boardConfig.width  - 1,
+          endX: this.boardConfig.width - 1,
           startY: 0,
-          endY  : this.boardConfig.height - 1,
+          endY: this.boardConfig.height - 1,
           totalTiles: this.boardConfig.width * this.boardConfig.height,
         };
         this.drawGridOptimized(full, lod);
@@ -345,7 +351,7 @@ export default class IsoScene extends Phaser.Scene {
     this.forceRedraw = false;
   }
 
-  private forceInitialRender() {
+  private forceInitialRender(): void {
     this.forceRedraw = true;
     this.updateViewportAndRender();
   }
@@ -354,9 +360,12 @@ export default class IsoScene extends Phaser.Scene {
   /*  GRID                                                               */
   /* ================================================================== */
 
-  private drawGridOptimized(v: VisibleTileRange, lod: number) {
+  private drawGridOptimized(v: VisibleTileRange, lod: number): void {
     const zoom = this.cameras.main.zoom;
-    if (!shouldRenderGrid(zoom, lod)) { this.gridGraphics.clear(); return; }
+    if (!shouldRenderGrid(zoom, lod)) { 
+      this.gridGraphics.clear(); 
+      return; 
+    }
 
     this.gridGraphics.clear();
     this.gridGraphics.lineStyle(2, 0xaaaaaa, 0.5);
@@ -399,7 +408,10 @@ export default class IsoScene extends Phaser.Scene {
   private redrawBoardOptimized(
     tiles: Array<{ x: number; y: number; tile: TileData }>
   ): void {
-    if (!tiles.length) { this.graphics.clear(); return; }
+    if (!tiles.length) { 
+      this.graphics.clear(); 
+      return; 
+    }
 
     const cam = this.cameras.main;
     const { offsetX, offsetY } = calculateDynamicIsoOffsets(
@@ -407,7 +419,7 @@ export default class IsoScene extends Phaser.Scene {
     );
 
     const zoom = cam.zoom;
-    const lod  = calculateLevelOfDetail(zoom);
+    const lod = calculateLevelOfDetail(zoom);
     const drawDecor = shouldRenderDecorations(zoom, lod);
 
     /* DEBUG HUD */
@@ -419,6 +431,7 @@ export default class IsoScene extends Phaser.Scene {
           ? `Culling: ${tiles.length}/${total}`
           : `No Culling`,
         `Zoom: ${zoom.toFixed(2)}`,
+        `LOD: ${lod}`,
       ]);
     }
 
@@ -555,7 +568,7 @@ export default class IsoScene extends Phaser.Scene {
       cam.width, cam.height, 0, 0, cam.zoom
     );
 
-    /* --- abordagem para boards grandes usa spatial index --- */
+    // Abordagem para boards grandes usa spatial index
     if (this.isLargeBoard) {
       const snap = screenToTileWithSnap(
         worldX - offsetX, worldY - offsetY,
@@ -588,7 +601,7 @@ export default class IsoScene extends Phaser.Scene {
       return null;
     }
 
-    /* --- boards pequenos: brute-force --- */
+    // Boards pequenos: brute-force
     const tiles = this.boardManager.getState();
     for (const t of tiles) {
       if (isPointInIsometricTile(
@@ -600,7 +613,7 @@ export default class IsoScene extends Phaser.Scene {
         return { tile: t.tile, x: t.x, y: t.y };
     }
 
-    /* fallback snap */
+    // Fallback snap
     const snap = screenToTileWithSnap(
       worldX - offsetX, worldY - offsetY,
       TILE_SIZE, TILE_HEIGHT,
@@ -617,7 +630,8 @@ export default class IsoScene extends Phaser.Scene {
   /* ================================================================== */
   /*  EXEMPLO DE TILES                                                   */
   /* ================================================================== */
-  private addExampleTiles() {
+  
+  private addExampleTiles(): void {
     [
       { 
         x: 0, 
@@ -637,65 +651,78 @@ export default class IsoScene extends Phaser.Scene {
       { 
         x: 1, 
         y: 0, 
-        color: 0xffb703,
+        color: 0x219ebc,
         metadata: {
-          label: 'Areia Dourada',
-          description: 'Areia fina e dourada, perfeita para construção.',
+          label: 'Rio Profundo',
+          description: 'Águas profundas e correntes fortes, ideais para navegação.',
           properties: {
-            granulacao: 'Fina',
-            dureza: 7,
-            origem: 'Deserto',
-            valor: 150
+            profundidade: 8,
+            correnteza: 'Forte',
+            navegabilidade: 'Alta',
+            tipo: 'Rio'
           }
         }
       },
       { 
         x: 0, 
         y: 1, 
-        color: 0x43a047,
+        color: 0x023047,
         metadata: {
-          label: 'Grama Verde',
-          description: 'Grama exuberante que cresce em solos férteis.',
+          label: 'Oceano Abissal',
+          description: 'Profundezas oceânicas misteriosas e inexploradas.',
           properties: {
-            fertilidade: 85,
-            altura: 12,
-            estacao: 'Primavera',
-            crescimento: 'Rápido'
+            profundidade: 50,
+            pressao: 'Extrema',
+            vida_marinha: 'Rica',
+            tipo: 'Oceano'
+          }
+        }
+      },
+      { 
+        x: 2, 
+        y: 0, 
+        color: 0xffb3c6,
+        metadata: {
+          label: 'Areia Rosa',
+          description: 'Praia exótica com areia de coloração rosada única.',
+          properties: {
+            composicao: 'Coral e Quartzo',
+            temperatura: 28,
+            raridade: 'Muito Rara',
+            tipo: 'Praia'
+          }
+        }
+      },
+      { 
+        x: 1, 
+        y: 1, 
+        color: 0xfb8500,
+        metadata: {
+          label: 'Deserto Dourado',
+          description: 'Vastas dunas de areia dourada sob o sol escaldante.',
+          properties: {
+            temperatura_dia: 45,
+            temperatura_noite: 5,
+            ventos: 'Moderados',
+            tipo: 'Deserto'
           }
         }
       },
       { 
         x: 2, 
         y: 1, 
-        color: 0xff006e,
+        color: 0x8ecae6,
         metadata: {
-          label: 'Cristal Mágico',
-          description: 'Um cristal raro que emana energia mística.',
+          label: 'Oásis Verde',
+          description: 'Refúgio verdejante no meio do deserto árido.',
           properties: {
-            energia: 250,
-            raridade: 'Épico',
-            magia: 'Fogo',
-            valor: 1000,
-            brilho: 'Intenso'
+            vegetacao: 'Palmeiras',
+            agua_potavel: true,
+            sombra: 'Abundante',
+            tipo: 'Oásis'
           }
         }
-      },
-      { 
-        x: 1, 
-        y: 2, 
-        color: 0x8338ec,
-        metadata: {
-          label: 'Pedra Roxa',
-          description: 'Uma pedra misteriosa com propriedades desconhecidas.',
-          properties: {
-            peso: 45,
-            dureza: 9,
-            origem: 'Vulcânica',
-            magnetismo: 'Fraco',
-            idade: '1000 anos'
-          }
-        }
-      },
+      }
     ].forEach(({ x, y, color, metadata }) => {
       if (x < this.boardConfig.width && y < this.boardConfig.height) {
         this.boardManager.placeTile(x, y, {
@@ -718,14 +745,6 @@ export default class IsoScene extends Phaser.Scene {
       return this.boardManager.getState();
     }
 
-    const cam = this.cameras.main;
-    const { offsetX, offsetY } = calculateDynamicIsoOffsets(
-      cam.width, cam.height, 0, 0, cam.zoom
-    );
-    const { cx, cy } = this.getCamCenter();
-    const boardCx = cx - offsetX;
-    const boardCy = cy - offsetY;
-
     const useCull = shouldUseViewportCulling(
       this.boardConfig.width, this.boardConfig.height
     );
@@ -741,5 +760,13 @@ export default class IsoScene extends Phaser.Scene {
     }
 
     return this.boardManager.getState();
+  }
+
+  public addExampleTilesPublic(): void {
+    this.addExampleTiles();
+  }
+
+  public forceRedrawPublic(): void {
+    this.forceRedraw = true;
   }
 }
