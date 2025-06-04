@@ -38,9 +38,9 @@ export const CameraHandler: React.FC<CameraHandlerProps> = ({
       const deltaY = Math.abs(currentPos.y - lastCameraPositionRef.current.y);
       const deltaZoom = Math.abs(currentZoom - lastCameraPositionRef.current.zoom);
       
-      // Só considerar movimento significativo se:
-      // - Movimento > 10px OU zoom mudou > 0.1
-      if (deltaX < 10 && deltaY < 10 && deltaZoom < 0.1) {
+      // 🔧 CORREÇÃO: Threshold de zoom ajustado de 0.1 para 0.05 para melhor responsividade
+      // - Movimento > 10px OU zoom mudou > 0.05
+      if (deltaX < 10 && deltaY < 10 && deltaZoom < 0.05) {
         lastCameraPositionRef.current = { x: currentPos.x, y: currentPos.y, zoom: currentZoom };
         return; // Não é movimento significativo
       }
@@ -49,8 +49,8 @@ export const CameraHandler: React.FC<CameraHandlerProps> = ({
     // Atualizar posição de referência
     lastCameraPositionRef.current = { x: currentPos.x, y: currentPos.y, zoom: currentZoom };
     
-    // Throttling: só chamar onCameraMove a cada 200ms
-    if (now - lastCameraMoveRef.current < 200) {
+    // 🔧 CORREÇÃO: Throttling reduzido de 200ms para 100ms para melhor responsividade
+    if (now - lastCameraMoveRef.current < 100) {
       // Se já há um timeout pendente, cancelar
       if (cameraMoveTimeoutRef.current) {
         clearTimeout(cameraMoveTimeoutRef.current);
@@ -60,7 +60,7 @@ export const CameraHandler: React.FC<CameraHandlerProps> = ({
       cameraMoveTimeoutRef.current = setTimeout(() => {
         lastCameraMoveRef.current = Date.now();
         onCameraMove?.();
-      }, 200);
+      }, 100);
       return;
     }
     

@@ -266,7 +266,7 @@ export default class IsoScene extends Phaser.Scene {
 
   private shouldThrottle(now: number): boolean {
     return now - this.lastRenderAt < (
-      this.cameras.main.zoom < 0.4 ? 55 : RERENDER_THROTTLE_MS
+      this.cameras.main.zoom < 0.4 ? 25 : RERENDER_THROTTLE_MS
     );
   }
 
@@ -323,7 +323,7 @@ export default class IsoScene extends Phaser.Scene {
       const changed =
         this.forceRedraw ||
         !this.lastCameraPosition ||
-        Math.abs(this.lastCameraPosition.zoom - zoom) > 0.002 ||
+        Math.abs(this.lastCameraPosition.zoom - zoom) > (zoom < 0.5 ? 0.008 : 0.002) ||
         Math.abs(this.lastCameraPosition.x - boardCx) > 8 ||
         Math.abs(this.lastCameraPosition.y - boardCy) > 8;
 

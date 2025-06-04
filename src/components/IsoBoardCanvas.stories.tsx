@@ -129,49 +129,6 @@ const InfoPanel: React.FC<{
   </div>
 );
 
-const EventCounter: React.FC<{ position?: 'left' | 'right' }> = ({ position = 'right' }) => {
-  const [events, setEvents] = useState({ total: 0, lastEvent: 'Nenhum evento', throttled: 0 });
-  
-  const handleEvent = useCallback((event: any) => {
-    setEvents(prev => ({
-      total: prev.total + 1,
-      lastEvent: `${event.type} - ${new Date().toLocaleTimeString()}`,
-      throttled: prev.throttled,
-    }));
-  }, []);
-  
-  return (
-    <>
-      <div
-        style={{
-          position: 'absolute',
-          bottom: '10px',
-          [position]: '10px',
-          backgroundColor: 'rgba(0, 0, 0, 0.8)',
-          color: 'white',
-          padding: '12px',
-          borderRadius: '6px',
-          fontSize: '11px',
-          minWidth: '200px',
-          zIndex: 1000,
-          border: '1px solid #333',
-        }}
-      >
-        <h4 style={{ margin: '0 0 6px 0', color: '#ffaa00' }}>📡 Monitor de Eventos</h4>
-        <div><strong>Total:</strong> {events.total}</div>
-        <div><strong>Throttled:</strong> {events.throttled}</div>
-        <div style={{ fontSize: '10px', color: '#aaffaa', marginTop: '4px' }}>
-          <strong>Último:</strong> {events.lastEvent}
-        </div>
-      </div>
-      {/* Retorna função para usar no componente pai */}
-      <script dangerouslySetInnerHTML={{
-        __html: `window.__eventHandler = ${handleEvent.toString()}`
-      }} />
-    </>
-  );
-};
-
 // ==================== STORY 1: CONFIGURAÇÃO BÁSICA ====================
 
 /**
@@ -1180,7 +1137,7 @@ export const PerformanceComparison: Story = {
 
     const [eventStats, setEventStats] = useState({ count: 0, startTime: Date.now() });
 
-    const handleEvent = useCallback((event: any) => {
+    const handleEvent = useCallback((_event: any) => {
       setEventStats(prev => ({ 
         count: prev.count + 1, 
         startTime: prev.startTime 

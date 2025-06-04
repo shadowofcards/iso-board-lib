@@ -115,23 +115,20 @@ export function useAdvancedBoardControls(
     (dest: Point2D, destZoom?: number) => {
       /* 1) simples, sem animação ---------------------------------- */
       if (!enableSmoothAnimations) {
-        camera.pan(dest.x - camera.getPosition().x,
-                   dest.y - camera.getPosition().y);
-        if (destZoom !== undefined) {
-          camera.zoomBy((destZoom - camera.getZoom()) * 100);
-        }
-        // 🔧 CORREÇÃO DO BUG: Notificar movimento de câmera
+        const endZoom = destZoom ?? camera.getZoom();
+        const start   = camera.getPosition();
+        camera.pan(dest.x - start.x, dest.y - start.y);
+        camera.zoomBy(endZoom - camera.getZoom());
         throttledCameraMove();
         return;
       }
 
-      /* 2) animado ------------------------------------------------- */
+      /* 2) animação ------------------------------------------------ */
+      setAnimating(true);
       const start     = camera.getPosition();
       const startZoom = camera.getZoom();
       const endZoom   = destZoom ?? startZoom;
       const t0        = performance.now();
-
-      setAnimating(true);
 
       const step = (now: number) => {
         const p    = Math.min((now - t0) / TELEPORT_ANIMATION_MS, 1);
@@ -143,7 +140,7 @@ export function useAdvancedBoardControls(
 
         camera.pan(x - camera.getPosition().x,
                    y - camera.getPosition().y);
-        camera.zoomBy((z - camera.getZoom()) * 100);
+        camera.zoomBy(z - camera.getZoom());
 
         // 🔧 CORREÇÃO DO BUG: Notificar movimento de câmera durante animação
         throttledCameraMove();
@@ -298,7 +295,7 @@ export function useAdvancedBoardControls(
         if ((CONTROLS_KEYS.ZOOM_OUT  as readonly string[]).some(k => keys.has(k))) dz -= zoomSt;
 
         if (dx || dy) camera.pan(dx, dy);
-        if (dz)       camera.zoomBy(dz * 100);
+        if (dz) camera.zoomBy(dz);
         
         // 🔧 CORREÇÃO DO BUG: Notificar movimento de câmera
         if ((dx || dy || dz) && onCameraMove) {

@@ -10,7 +10,7 @@ export const MAX_QUADS_PER_BATCH    = 1500; // WebGL path safety (< 65 k vertice
 
 export const ZOOM_MIN           = 0.3;
 export const ZOOM_MAX           = 4;
-export const ZOOM_SCROLL_FACTOR = 0.0007; // sensibilidade do wheel
+export const ZOOM_SCROLL_FACTOR = 0.001; // sensibilidade do wheel
 
 // ==================== CONTROLES DE NAVEGAÇÃO ====================
 export const KEYBOARD_PAN_SPEED      = 8;    // Velocidade base do pan por teclado (px/frame)
