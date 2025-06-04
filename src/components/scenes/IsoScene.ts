@@ -50,6 +50,7 @@ interface IsoSceneConfig {
     e: { clientX: number; clientY: number }
   ) => void;
   onTileInfo?: (tile: TileData, position: { x: number; y: number }) => void;
+  onTileHover?: (tile: TileData | null, position: { x: number; y: number } | null) => void;
   onReadyCallback: () => void;
 }
 
@@ -74,6 +75,7 @@ export default class IsoScene extends Phaser.Scene {
     e: { clientX: number; clientY: number }
   ) => void;
   private onTileInfo?: (tile: TileData, position: { x: number; y: number }) => void;
+  private onTileHover?: (tile: TileData | null, position: { x: number; y: number } | null) => void;
 
   private changeListener!: BoardChangeListener;
 
@@ -88,6 +90,10 @@ export default class IsoScene extends Phaser.Scene {
   private isLargeBoard: boolean;
   private debugText?: Phaser.GameObjects.Text;
 
+  // Novos campos para hover
+  private lastHoveredTile: { tile: TileData; x: number; y: number } | null = null;
+  private hoverCheckInterval: number = 0;
+
   /* ------------------------------------------------------------------ */
   /*  CONSTRUTOR                                                         */
   /* ------------------------------------------------------------------ */
@@ -101,6 +107,7 @@ export default class IsoScene extends Phaser.Scene {
     this.onReadyCallback = cfg.onReadyCallback;
     this.onTileDragStart = cfg.onTileDragStart;
     this.onTileInfo      = cfg.onTileInfo;
+    this.onTileHover     = cfg.onTileHover;
 
     this.isLargeBoard =
       cfg.boardConfig.width * cfg.boardConfig.height > 10_000;
@@ -209,6 +216,9 @@ export default class IsoScene extends Phaser.Scene {
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
       if (this.dragController.getState().isDragging) {
         this.dragController.updateDrag({ x: p.worldX, y: p.worldY });
+      } else {
+        // Verificar hover quando não estiver arrastando
+        this.checkTileHover(p.worldX, p.worldY, p.x, p.y);
       }
     });
 
@@ -226,15 +236,8 @@ export default class IsoScene extends Phaser.Scene {
 
       const clicked = this.findTileAtPositionOptimized(p.worldX, p.worldY);
 
-      if (p.rightButtonDown()) {
-        if (clicked && this.onTileInfo) {
-          const r = this.game.canvas.getBoundingClientRect();
-          this.onTileInfo(clicked.tile, {
-            x: p.x + r.left,
-            y: p.y + r.top,
-          });
-        }
-      } else if (p.leftButtonDown()) {
+      // Remover lógica de clique direito e manter apenas clique esquerdo para drag
+      if (p.leftButtonDown()) {
         if (clicked && this.onTileDragStart) {
           const r = this.game.canvas.getBoundingClientRect();
           this.onTileDragStart(clicked.tile, clicked.x, clicked.y, {
@@ -243,6 +246,11 @@ export default class IsoScene extends Phaser.Scene {
           });
         }
       }
+    });
+
+    /* detectar quando mouse sai do canvas para limpar hover */
+    this.input.on('pointerout', () => {
+      this.clearTileHover();
     });
   }
 
@@ -502,6 +510,43 @@ export default class IsoScene extends Phaser.Scene {
   /*  TILE PICKING                                                       */
   /* ================================================================== */
 
+  private checkTileHover(worldX: number, worldY: number, screenX: number, screenY: number): void {
+    const hoveredTile = this.findTileAtPositionOptimized(worldX, worldY);
+    
+    // Verificar se mudou o tile sob hover
+    const changed = !this.tilesEqual(hoveredTile, this.lastHoveredTile);
+    
+    if (changed) {
+      this.lastHoveredTile = hoveredTile;
+      
+      if (hoveredTile && this.onTileHover) {
+        const r = this.game.canvas.getBoundingClientRect();
+        this.onTileHover(hoveredTile.tile, {
+          x: screenX + r.left,
+          y: screenY + r.top,
+        });
+      } else if (this.onTileHover) {
+        this.onTileHover(null, null);
+      }
+    }
+  }
+
+  private clearTileHover(): void {
+    if (this.lastHoveredTile && this.onTileHover) {
+      this.onTileHover(null, null);
+      this.lastHoveredTile = null;
+    }
+  }
+
+  private tilesEqual(
+    a: { tile: TileData; x: number; y: number } | null,
+    b: { tile: TileData; x: number; y: number } | null
+  ): boolean {
+    if (!a && !b) return true;
+    if (!a || !b) return false;
+    return a.tile.id === b.tile.id && a.x === b.x && a.y === b.y;
+  }
+
   private findTileAtPositionOptimized(
     worldX: number, worldY: number
   ): { tile: TileData; x: number; y: number } | null {
@@ -574,19 +619,127 @@ export default class IsoScene extends Phaser.Scene {
   /* ================================================================== */
   private addExampleTiles() {
     [
-      { x: 0, y: 0, color: 0x8ecae6 },
-      { x: 1, y: 0, color: 0xffb703 },
-      { x: 0, y: 1, color: 0x43a047 },
-      { x: 2, y: 1, color: 0xff006e },
-      { x: 1, y: 2, color: 0x8338ec },
-    ].forEach(({ x, y, color }) => {
+      { 
+        x: 0, 
+        y: 0, 
+        color: 0x8ecae6,
+        metadata: {
+          label: 'Água Cristalina',
+          description: 'Uma fonte de água pura e cristalina, essencial para a vida.',
+          properties: {
+            pureza: 95,
+            temperatura: 18,
+            profundidade: 3,
+            tipo: 'Natural'
+          }
+        }
+      },
+      { 
+        x: 1, 
+        y: 0, 
+        color: 0xffb703,
+        metadata: {
+          label: 'Areia Dourada',
+          description: 'Areia fina e dourada, perfeita para construção.',
+          properties: {
+            granulacao: 'Fina',
+            dureza: 7,
+            origem: 'Deserto',
+            valor: 150
+          }
+        }
+      },
+      { 
+        x: 0, 
+        y: 1, 
+        color: 0x43a047,
+        metadata: {
+          label: 'Grama Verde',
+          description: 'Grama exuberante que cresce em solos férteis.',
+          properties: {
+            fertilidade: 85,
+            altura: 12,
+            estacao: 'Primavera',
+            crescimento: 'Rápido'
+          }
+        }
+      },
+      { 
+        x: 2, 
+        y: 1, 
+        color: 0xff006e,
+        metadata: {
+          label: 'Cristal Mágico',
+          description: 'Um cristal raro que emana energia mística.',
+          properties: {
+            energia: 250,
+            raridade: 'Épico',
+            magia: 'Fogo',
+            valor: 1000,
+            brilho: 'Intenso'
+          }
+        }
+      },
+      { 
+        x: 1, 
+        y: 2, 
+        color: 0x8338ec,
+        metadata: {
+          label: 'Pedra Roxa',
+          description: 'Uma pedra misteriosa com propriedades desconhecidas.',
+          properties: {
+            peso: 45,
+            dureza: 9,
+            origem: 'Vulcânica',
+            magnetismo: 'Fraco',
+            idade: '1000 anos'
+          }
+        }
+      },
+    ].forEach(({ x, y, color, metadata }) => {
       if (x < this.boardConfig.width && y < this.boardConfig.height) {
         this.boardManager.placeTile(x, y, {
           id: `example-${x}-${y}`,
           type: 'example',
           color,
+          metadata,
         });
       }
     });
+  }
+
+  /* ================================================================== */
+  /*  MÉTODOS PÚBLICOS                                                   */
+  /* ================================================================== */
+
+  public getVisibleTiles(): Array<{ x: number; y: number; tile: TileData }> {
+    if (!this.lastVisibleRange) {
+      // Se não há range visível definido, retorna todos os tiles
+      return this.boardManager.getState();
+    }
+
+    const cam = this.cameras.main;
+    const { offsetX, offsetY } = calculateDynamicIsoOffsets(
+      cam.width, cam.height, 0, 0, cam.zoom
+    );
+    const { cx, cy } = this.getCamCenter();
+    const boardCx = cx - offsetX;
+    const boardCy = cy - offsetY;
+
+    const useCull = shouldUseViewportCulling(
+      this.boardConfig.width, this.boardConfig.height
+    );
+
+    if (useCull && this.lastVisibleRange) {
+      const q: SpatialQuery = {
+        minX: this.lastVisibleRange.startX, 
+        maxX: this.lastVisibleRange.endX,
+        minY: this.lastVisibleRange.startY, 
+        maxY: this.lastVisibleRange.endY,
+      };
+      return this.boardManager.getVisibleTiles(q);
+    }
+
+    return this.boardManager.getState();
   }
 }

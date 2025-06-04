@@ -6,6 +6,7 @@ import IsoTileInventory from './IsoTileInventory';
 import CameraHandler from './CameraHandler';
 import PreviewOverlay from './PreviewOverlay';
 import TileInfoPopup from './TileInfoPopup';
+import RealtimeTileDisplay from './RealtimeTileDisplay';
 import BoardControlsPanel from './BoardControlsPanel';
 import { useBoardController } from '../hooks/useBoardController';
 import { useDragTile } from '../hooks/useDragTile';
@@ -39,6 +40,16 @@ export const IsoBoardCanvas: React.FC<IsoBoardCanvasProps> = ({
     position: { x: number; y: number };
   } | null>(null);
 
+  // Estado para hover de tiles
+  const [hoveredTile, setHoveredTile] = useState<{
+    tile: TileData;
+    position: { x: number; y: number };
+  } | null>(null);
+
+  // Estado para o display em tempo real
+  const [showRealtimeDisplay, setShowRealtimeDisplay] = useState(false);
+  const [visibleTiles, setVisibleTiles] = useState<Array<{ x: number; y: number; tile: TileData }>>([]);
+
   const { boardManager, dragController, cameraModel } = useBoardController({
     width: boardWidth,
     height: boardHeight,
@@ -55,6 +66,15 @@ export const IsoBoardCanvas: React.FC<IsoBoardCanvasProps> = ({
   // Handler para informações do tile
   const handleTileInfo = useCallback((tile: TileData, position: { x: number; y: number }) => {
     setTileInfoPopup({ tile, position });
+  }, []);
+
+  // Handler para hover do tile
+  const handleTileHover = useCallback((tile: TileData | null, position: { x: number; y: number } | null) => {
+    if (tile && position) {
+      setHoveredTile({ tile, position });
+    } else {
+      setHoveredTile(null);
+    }
   }, []);
 
   // Handler para fechar popup
@@ -149,6 +169,27 @@ export const IsoBoardCanvas: React.FC<IsoBoardCanvasProps> = ({
     };
   }, [dragState.isDragging, handleWindowMouseMove, handleWindowMouseUp]);
 
+  // Atualizar tiles visíveis em tempo real
+  useEffect(() => {
+    if (!phaserGameRef.current) return;
+
+    const updateVisibleTiles = () => {
+      const scene = phaserGameRef.current?.scene.getScene('IsoScene') as any;
+      if (scene && scene.getVisibleTiles) {
+        const tiles = scene.getVisibleTiles();
+        setVisibleTiles(tiles);
+      }
+    };
+
+    // Atualizar imediatamente
+    updateVisibleTiles();
+
+    // Atualizar a cada 100ms para ter dados em tempo real
+    const interval = setInterval(updateVisibleTiles, 100);
+
+    return () => clearInterval(interval);
+  }, [phaserGameRef.current]);
+
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -159,6 +200,7 @@ export const IsoBoardCanvas: React.FC<IsoBoardCanvasProps> = ({
       cameraModel,
       onTileDragStart: handleBoardTileDragStart,
       onTileInfo: handleTileInfo,
+      onTileHover: handleTileHover,
       onReadyCallback: () => {},
     });
 
@@ -186,7 +228,7 @@ export const IsoBoardCanvas: React.FC<IsoBoardCanvasProps> = ({
       game.destroy(true);
       phaserGameRef.current = null;
     };
-  }, [boardManager, boardWidth, boardHeight, cameraModel, dragController, handleBoardTileDragStart, handleTileInfo]);
+  }, [boardManager, boardWidth, boardHeight, cameraModel, dragController, handleBoardTileDragStart, handleTileInfo, handleTileHover]);
 
   const containerStyle = {
     width,
@@ -214,6 +256,17 @@ export const IsoBoardCanvas: React.FC<IsoBoardCanvasProps> = ({
         tile={tileInfoPopup?.tile || null}
         position={tileInfoPopup?.position || null}
         onClose={handleClosePopup}
+      />
+      <TileInfoPopup 
+        tile={hoveredTile?.tile || null}
+        position={hoveredTile?.position || null}
+        onClose={() => setHoveredTile(null)}
+        isHover={true}
+      />
+      <RealtimeTileDisplay
+        visibleTiles={visibleTiles}
+        isVisible={showRealtimeDisplay}
+        onToggle={() => setShowRealtimeDisplay(!showRealtimeDisplay)}
       />
       {showControlsPanel && (
         <BoardControlsPanel

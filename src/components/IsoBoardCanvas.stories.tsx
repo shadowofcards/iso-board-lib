@@ -450,50 +450,7 @@ export const UltraGigantOptimized: Story = {
         showControlsPanel={showControlsPanel}
       />
       
-      <div
-        style={{
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          backgroundColor: 'rgba(255, 140, 0, 0.95)',
-          color: 'white',
-          padding: '24px',
-          borderRadius: '12px',
-          fontSize: '16px',
-          textAlign: 'center',
-          zIndex: 1000,
-          border: '3px solid #ff8c00',
-          maxWidth: '450px',
-        }}
-      >
-        <h2 style={{ margin: '0 0 12px 0' }}>🚀 TESTE DE STRESS EXTREMO OTIMIZADO</h2>
-        <p style={{ margin: '0 0 8px 0' }}>
-          <strong style={{ color: '#ffff00' }}>{(boardWidth * boardHeight / 1000000).toFixed(1)} MILHÕES</strong> de tiles
-        </p>
-        <p style={{ margin: '0 0 12px 0', fontSize: '14px' }}>
-          Sistema completamente otimizado com controles avançados integrados.
-          <br />
-          Máxima performance + funcionalidades profissionais.
-        </p>
-        
-        <div style={{ fontSize: '13px', textAlign: 'left' }}>
-          <h4 style={{ margin: '8px 0 4px 0', textAlign: 'center' }}>💪 Sistema Completo:</h4>
-          <ul style={{ margin: 0, paddingLeft: '20px' }}>
-            <li>Ultra Viewport Culling</li>
-            <li>Spatial Index Avançado</li>
-            <li>LOD Agressivo</li>
-            <li>Batch Rendering Otimizado</li>
-            <li>Cache Multi-Layer</li>
-            <li>Throttling Inteligente</li>
-            <li><strong>Controles Avançados Completos</strong></li>
-          </ul>
-          
-          <p style={{ margin: '8px 0 0 0', textAlign: 'center', fontSize: '12px', color: '#ffff99' }}>
-            🎮 Use o painel de controles para navegar por este mundo massivo!
-          </p>
-        </div>
-      </div>
+   
     </div>
   ),
   parameters: {
